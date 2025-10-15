@@ -1,0 +1,15 @@
+# virtual environments
+.venv/
+venv/
+
+# Python build / cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# macOS junk files
+.DS_Store
+
+# environment files
+.env
