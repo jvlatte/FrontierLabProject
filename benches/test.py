@@ -41,7 +41,8 @@ def build_circuit(n_qubits: int, depth: int, do_measure: bool):
     - Layer: H on all qubits
     - Ring of CXs
     - Parametrized RY/RZ per qubit per layer
-    """= QuantumCircuit(n_qubits)
+    """
+    qc= QuantumCircuit(n_qubits)
     # save statevector BEFORE measurement so both CPU/GPU should give the same vector
     qc.append(SaveStatevector(num_qubits=n_qubits, label="psi"), qc.qubits)
 
