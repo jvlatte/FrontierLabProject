@@ -1,2 +1,1 @@
 timestamp,host,os,python,backend,device,task,circuit,nqubits,depth,shots,repeat_idx,transpile_s,simulate_s,total_s,notes
-2025-11-10T15:08:05,Joshuas-MacBook-Pro-5.local,macOS-14.2.1-arm64-arm-64bit,3.11.2,cpu,CPU,statevector,random,10,4,0,1,0.104188,0.003863,0.108051,
