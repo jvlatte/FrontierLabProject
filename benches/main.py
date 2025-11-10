@@ -3,9 +3,13 @@ from qiskit import QuantumCircuit, transpile
 from qiskit_aer import AerSimulator
 from qiskit.circuit.library import QFT
 import time
-
 import numpy as np
 import random
+import datetime
+from pathlib import Path
+import csv
+
+from custom_logging import _ensure_csv, _env_info, _append_csv
 
 
 
@@ -63,42 +67,77 @@ def create_simulator(backend: str, task: str):
         raise ValueError(f"Unknown backend: {backend}")
     return sim
 
-def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measure: bool):
-    """execute circuit and measure wall time and memory usage"""
+# def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measure: bool):
+#     """execute circuit and measure wall time and memory usage"""
 
-    t0 = time.perf_counter()
+#     t0 = time.perf_counter()
+#     if task == "sampling" and measure:
+#         qc_run = qc.copy()
+#         qc_run.measure_all()
+#     else:
+#         qc_run = qc
+
+#     if task == "statevector":
+#         qc_sv = qc_run.copy()
+#         qc_sv.save_statevector()
+#         # transpile simulator (work on this later)
+#         tqc = transpile(qc_sv, sim)
+#         result = sim.run(tqc).result()
+#         vec = result.get_statevector(tqc)
+#         print("Statevector:")
+#         print(vec)
+
+#         try:
+#             from qiskit.quantum_info import Statevector
+#             sv = Statevector(result.get_statevector(tqc))
+#             extra = {"statevector": [complex(a) for a in sv.data]}
+#         except Exception:
+#             extra = {"statevector": None}
+#     else:
+#         # transpile simulator (work on this later)
+#         tqc = transpile(qc_run, sim)
+#         result = sim.run(tqc, shots=shots).result()
+#         counts = result.get_counts(tqc)
+#         extra = {"counts": counts}
+
+#     t1 = time.perf_counter() - t0
+
+#     return t1, extra
+
+
+def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measure: bool):
     if task == "sampling" and measure:
         qc_run = qc.copy()
         qc_run.measure_all()
     else:
         qc_run = qc
 
+    transpile_t0 = time.perf_counter()
     if task == "statevector":
         qc_sv = qc_run.copy()
         qc_sv.save_statevector()
-        # transpile simulator (work on this later)
         tqc = transpile(qc_sv, sim)
-        result = sim.run(tqc).result()
-        vec = result.get_statevector(tqc)
-        print("Statevector:")
-        print(vec)
+    else:
+        tqc = transpile(qc_run, sim)
+    transpile_s = time.perf_counter() - transpile_t0
 
+    simulate_t0 = time.perf_counter()
+    result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
+    simulate_s = time.perf_counter() - simulate_t0
+
+    if task == "statevector":
+        vec = result.get_statevector(tqc)
         try:
             from qiskit.quantum_info import Statevector
-            sv = Statevector(result.get_statevector(tqc))
+            sv = Statevector(vec)
             extra = {"statevector": [complex(a) for a in sv.data]}
         except Exception:
             extra = {"statevector": None}
     else:
-        # transpile simulator (work on this later)
-        tqc = transpile(qc_run, sim)
-        result = sim.run(tqc, shots=shots).result()
         counts = result.get_counts(tqc)
         extra = {"counts": counts}
-    
-    t1 = time.perf_counter() - t0
 
-    return t1, extra
+    return transpile_s, simulate_s, extra
 
 
 def main():
@@ -112,7 +151,30 @@ def main():
     parser.add_argument("--shots", type=int, default=1024)
     parser.add_argument("--repeats", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
+    # default for csv is set; change later on
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    csv_path = PROJECT_ROOT / "results" / "result.csv"
+
+    parser.add_argument("--csv", type=str, default=str(csv_path))
+
+    #parser.add_argument("--csv", type=str, default="results/result.csv", help="Path to CSV log (e.g., results/bench.csv)")
+
     args = parser.parse_args()
+    
+    # prep csv info
+    fieldnames = [
+    "timestamp","host","os","python",
+    "backend","device","task","circuit","nqubits","depth","shots","repeat_idx",
+    "transpile_s","simulate_s","total_s",
+    "notes"
+    ]
+    if args.csv:
+        _ensure_csv(args.csv, fieldnames)
+        with open(args.csv, "w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+    env = _env_info()
+
 
     # prepare circuit
     qc = build_circuit(circuit=args.circuit, n_qubits=args.nqubits, depth=args.depth, seed=args.seed)
@@ -124,10 +186,40 @@ def main():
     else:
         # only cpu or gpu+cpu
         sim = create_simulator(backend=args.backend, task=args.tasks)
+        device_used = "GPU" if (args.backend == "gpu") else "CPU"
         for i in range(args.repeats):
-            t_elapsed, extra = run_once(sim=sim, qc=qc, task=args.tasks, shots=args.shots, measure=True)
-            print(f"Run {i+1}/{args.repeats} on {args.backend} took {t_elapsed:.4f} seconds. Extra: {extra}")
-            
+            trans_elapsed, sim_elapsed, extra = run_once(sim=sim, qc=qc, task=args.tasks, shots=args.shots, measure=True)
+            final_str = (
+            f"Run {i+1}/{args.repeats} on {args.backend} took {trans_elapsed:.4f} sec "
+            f"to transpile and {sim_elapsed:.4f} sec to simulate. "
+            f"Total: {(trans_elapsed + sim_elapsed):.4f}. Extra: {extra}"
+            )
+            print(final_str)
+
+
+            if args.csv:
+                row = {
+                    "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+                    "host": env["host"],
+                    "os": env["os"],
+                    "python": env["python"],
+                    "backend": args.backend,
+                    "device": device_used,
+                    "task": args.tasks,
+                    "circuit": args.circuit,
+                    "nqubits": args.nqubits,
+                    "depth": args.depth,
+                    "shots": args.shots if args.tasks == "sampling" else 0,
+                    "repeat_idx": i + 1,
+                    "transpile_s": f"{trans_elapsed:.6f}",
+                    "simulate_s": f"{sim_elapsed:.6f}",
+                    "total_s": f"{trans_elapsed + sim_elapsed:.6f}",
+                    "notes": "",  # e.g., layout/method variants later
+                }
+                _append_csv(args.csv, row, fieldnames)
+
+
+
 
 if __name__ == "__main__":
     main()
