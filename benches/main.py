@@ -13,6 +13,52 @@ from typing import Dict, List, Tuple, Optional
 
 from custom_logging import _ensure_csv, _env_info, _append_csv
 
+import os
+try:
+    import psutil
+except Exception:
+    psutil = None
+try:
+    import pynvml
+    pynvml.nvmlInit()
+except Exception:
+    print("pynvml not available")
+    pynvml = None
+
+
+
+###### new functions ######
+def _tqc_stats(tqc: QuantumCircuit) -> Dict[str, int]:
+    ops = tqc.count_ops()
+    twoq = int(ops.get("cx", 0) + ops.get("cz", 0) + ops.get("swap", 0))
+    return {
+        "nqubits_t": tqc.num_qubits,
+        "depth_t": tqc.depth(),
+        "cx_count": int(ops.get("cx", 0)),
+        "cz_count": int(ops.get("cz", 0)),
+        "swap_count": int(ops.get("swap", 0)),
+        "rz_count": int(ops.get("rz", 0)),
+        "rx_count": int(ops.get("rx", 0)),
+        "twoq_count": twoq,
+    }
+
+
+def _mem_snapshot() -> Dict[str, float]:
+    out = {"rss_mb": "", "gpu_mem_mb": "", "gpu_util": ""}
+    if psutil:
+        rss = psutil.Process(os.getpid()).memory_info().rss / (1024**2)
+        out["rss_mb"] = f"{rss:.2f}"
+    if pynvml:
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            out["gpu_mem_mb"] = f"{mem.used/1024**2:.2f}"
+            out["gpu_util"] = f"{util.gpu}"
+        except Exception:
+            pass
+    return out
+
 
 
 def build_circuit(circuit: str, n_qubits: int, depth: int, seed: int):
@@ -127,7 +173,11 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
         counts = result.get_counts(tqc)
         extra = {"counts": counts}
 
-    return transpile_s, simulate_s, extra
+    # NEW: collect stats and resources
+    stats = _tqc_stats(tqc)
+    res_usage = _mem_snapshot()
+
+    return transpile_s, simulate_s, extra, stats, res_usage
 
 
 def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: QuantumCircuit):
@@ -135,7 +185,7 @@ def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: Qu
     sim, device_used = create_simulator(backend=args.backend, task=args.tasks)
     #device_used = "GPU" if (args.backend == "gpu") else "CPU"
     for i in range(args.repeats):
-        trans_elapsed, sim_elapsed, extra = run_once(sim=sim, qc=qc, task=args.tasks, shots=args.shots, measure=True)
+        trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=args.tasks, shots=args.shots, measure=True)
         final_str = (
         f"Run {i+1}/{args.repeats} on {args.backend} took {trans_elapsed:.4f} sec "
         f"to transpile and {sim_elapsed:.4f} sec to simulate. "
@@ -161,9 +211,14 @@ def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: Qu
                 "transpile_s": f"{trans_elapsed:.6f}",
                 "simulate_s": f"{sim_elapsed:.6f}",
                 "total_s": f"{trans_elapsed + sim_elapsed:.6f}",
+                 **{k: stats[k] for k in ["nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count"]},
+                "rss_mb": res_usage.get("rss_mb",""),
+                "gpu_mem_mb": res_usage.get("gpu_mem_mb",""),
+                "gpu_util": res_usage.get("gpu_util",""),
                 "notes": "",  # e.g., layout/method variants later
             }
             _append_csv(args.csv, row, fieldnames)
+
 
 
 def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_path: Optional[str]):
@@ -171,61 +226,127 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
     env = _env_info()
     timestamp = lambda: datetime.datetime.now().isoformat(timespec="seconds")
 
+    def _filtered(row: Dict[str, object]) -> Dict[str, object]:
+        # keep only keys that exist in current CSV header
+        return {k: v for k,v in row.items() if k in fieldnames}
+    
+    def _row_base(backend: str, device: str, repeat_idx: int,
+                  t_trans: float, t_sim: float, notes: str="") -> Dict[str, object]:
+        row = {
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            "host": env.get("host", ""),
+            "os": env.get("os", ""),
+            "python": env.get("python", ""),
+            "backend": backend,
+            "device": device,
+            "task": args.tasks,
+            "circuit": args.circuit,
+            "nqubits": args.nqubits,
+            "depth": args.depth,
+            "shots": args.shots if args.tasks == "sampling" else 0,
+            "repeat_idx": repeat_idx,
+            "transpile_s": f"{t_trans:.6f}",
+            "simulate_s": f"{t_sim:.6f}",
+            "total_s": f"{t_trans + t_sim:.6f}",
+            "notes": notes,
+        }
+        return row
+
+    def _inject_stats(row: Dict[str, object], stats: Dict[str, object], res_usage: Dict[str, object]) -> None:
+        # Expected optional columns: nqubits_t, depth_t, twoq_count, cx_count, cz_count, swap_count, rz_count, rx_count
+        for k in ["nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count"]:
+            if k in fieldnames and stats is not None:
+                row[k] = stats.get(k, "")
+        # Resource usage: rss_mb, gpu_mem_mb, gpu_util
+        if res_usage:
+            for k in ["rss_mb","gpu_mem_mb","gpu_util"]:
+                if k in fieldnames:
+                    row[k] = res_usage.get(k, "")
+
+    def _kl_div(counts_p: Dict[str, int], counts_q: Dict[str, int], eps: float = 1e-12) -> float:
+        keys = set(counts_p.keys()) | set(counts_q.keys())
+        sp = sum(counts_p.values()) or 1
+        sq = sum(counts_q.values()) or 1
+        k = len(keys) or 1
+        kl = 0.0
+        for key in keys:
+            p = (counts_p.get(key, 0) + eps) / (sp + eps * k)
+            q = (counts_q.get(key, 0) + eps) / (sq + eps * k)
+            kl += p * np.log(p / q)
+        return float(kl)
+        
+
     # build CPU ref sim
     cpu_sim, cpu_device = create_simulator("cpu", args.tasks)
 
     # reference run (ONE run for all repeats)
-    ref_trans_sec, ref_sim_sec, ref_extra = run_once(sim=cpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True)
+    ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
+        sim=cpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True)
 
     # extract ref artifact
-    ref_sv = None
-    ref_counts = None
-    if args.tasks == "statevector":
-        ref_sv = ref_extra["statevector"]
-    else:
-        ref_counts = ref_extra["counts"]
+    ref_sv = ref_extra.get("statevector") if args.tasks == "statevector" else None
+    ref_counts = ref_extra.get("counts") if args.tasks != "statevector" else None
+
+    if csv_path:
+        cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes="reference")
+        _inject_stats(cpu_row, ref_stats, ref_res)
+        # correctness cols stay blank for ref
+        _append_csv(csv_path, _filtered(cpu_row), fieldnames)
 
     # gpu part now; keep running until repeats end
     gpu_sim, gpu_device = create_simulator("gpu", args.tasks)
     if "GPU" not in gpu_device:
         raise RuntimeError("GPU not present/available")
-    
+
     for i in range(args.repeats):
-        transpile_s, simulate_s, extra = run_once(sim=gpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True)
+        transpile_s, simulate_s, extra, g_stats, g_res = run_once(sim=gpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True)
         total_s = transpile_s + simulate_s
 
-        # metrics
-        sv_overlap = ""
-        sv_l2 = ""
-        tvd = ""
-        passed = ""
+        # # metrics
+        # sv_overlap = ""
+        # sv_l2 = ""
+        # tvd = ""
+        # passed = ""
 
+        note = ""
+        row = _row_base("gpu", gpu_device, i + 1, transpile_s, simulate_s)
+        _inject_stats(row, g_stats, g_res)
+
+        # correctness
         if args.tasks == "statevector":
-            gpu_sv = extra["statevector"]
+            gpu_sv = extra.get("statevector")
             ov, l2 = statevector_overlap(ref_sv, gpu_sv)
-            sv_overlap = f"{ov:.12f}"
-            sv_l2 = f"{l2:.3e}"
-            passed = str(ov > 1 - 1e-9)
-
+            passed = (ov > 1 - 1e-9)
             print(
-                f"[compare sv] rep {i+1}/{args.repeats} "
-                f"| overlap={sv_overlap} l2={sv_l2} "
-                f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s PASS={passed}"
+                f"[GPU sv] rep {i+1}/{args.repeats} | overlap={ov:.12f} l2={l2:.3e} "
+                f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
             )
-
+            note = f"overlap={ov:.12f}; l2={l2:.3e}; pass={passed}"
+            if "overlap" in fieldnames: row["overlap"] = f"{ov:.12f}"
+            if "l2" in fieldnames:      row["l2"]      = f"{l2:.3e}"
+            if "passed" in fieldnames:  row["passed"]  = str(passed)
         else:
-            gpu_counts = extra["counts"]
-            tvd_val = total_variation_distance(ref_counts, gpu_counts)
-            tvd = f"{tvd_val:.5f}"
-            passed = str(tvd_val < 0.02)
-
+            gpu_counts = extra.get("counts", {})
+            tvd = total_variation_distance(ref_counts, gpu_counts)
+            passed = (tvd < 0.02)
+            kl = _kl_div(ref_counts, gpu_counts) if "kl_div" in fieldnames else None
             print(
-                f"[compare sampling] rep {i+1}/{args.repeats} "
-                f"| TVD={tvd} "
-                f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s PASS={passed}"
+                f"[GPU sampling] rep {i+1}/{args.repeats} | TVD={tvd:.6f}"
+                + (f" KL={kl:.6f}" if kl is not None else "")
+                + f" | t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
             )
+            note = f"TVD={tvd:.6f}; " + (f"KL={kl:.6f}; " if kl is not None else "") + f"pass={passed}"
+            if "tvd" in fieldnames:     row["tvd"]     = f"{tvd:.6f}"
+            if kl is not None:          row["kl_div"]  = f"{kl:.6f}"
+            if "passed" in fieldnames:  row["passed"]  = str(passed)
 
-    pass
+        # keep human-readable note regardless of column set
+        row["notes"] = note
+        if csv_path:
+            _append_csv(csv_path, _filtered(row), fieldnames)
+
+
+
 
 
 def main():
@@ -254,6 +375,12 @@ def main():
     "timestamp","host","os","python",
     "backend","device","task","circuit","nqubits","depth","shots","repeat_idx",
     "transpile_s","simulate_s","total_s",
+    # NEW compile/circuit stats
+    "nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count",
+    # NEW resource usage
+    "rss_mb","gpu_mem_mb","gpu_util",
+    # NEW correctness (will be blank if not applicable)
+    "overlap","l2","tvd","kl_div","passed",
     "notes"
     ]
     if args.csv:
