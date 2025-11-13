@@ -224,7 +224,6 @@ def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: Qu
 def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_path: Optional[str]):
     # last arg might not be needed
     env = _env_info()
-    timestamp = lambda: datetime.datetime.now().isoformat(timespec="seconds")
 
     def _filtered(row: Dict[str, object]) -> Dict[str, object]:
         # keep only keys that exist in current CSV header
@@ -279,7 +278,8 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
     # build CPU ref sim
     cpu_sim, cpu_device = create_simulator("cpu", args.tasks)
 
-    # reference run (ONE run for all repeats)
+    # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
+    # for i in range(args.repeats):
     ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
         sim=cpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True)
 
