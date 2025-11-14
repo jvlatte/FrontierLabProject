@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import argparse
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 def plot_runtime_vs_n(df, outdir):
     for task in sorted(df['task'].dropna().unique()):
         sub = df[df['task']==task]
@@ -78,12 +80,12 @@ def plot_correctness(df, outdir):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--csv', default='../results/result.csv')   # path from benches/
-    ap.add_argument('--outdir', default='../results')           # output plots go here
+    ap.add_argument('--csv', default=str(PROJECT_ROOT / 'results' / 'result.csv'))
+    ap.add_argument('--outdir', default=str(PROJECT_ROOT / 'results'))
     args = ap.parse_args()
 
-    csv_path = Path(args.csv).resolve()
-    outdir = Path(args.outdir).resolve()
+    csv_path = Path(args.csv)
+    outdir = Path(args.outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"Loading CSV: {csv_path}")
