@@ -4,28 +4,45 @@ import time
 
 from .metrics.correctness import statevector_overlap, total_variation_distance
 from .metrics.resources import _tqc_stats, _mem_snapshot
+from .transpiler.pm import make_custom_pm
 
 
-def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measure: bool):
+
+def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measure: bool, transpiler: str = "baseline"):
+    print(f"the transpiler is: {transpiler}")
     if task == "sampling" and measure:
         qc_run = qc.copy()
         qc_run.measure_all()
     else:
         qc_run = qc
 
+    # transpile time
     transpile_t0 = time.perf_counter()
     if task == "statevector":
         qc_sv = qc_run.copy()
         qc_sv.save_statevector()
-        tqc = transpile(qc_sv, sim)
+
+        if transpiler == "custom":
+            # custom pass manager
+            pm = make_custom_pm()
+            tqc = pm.run(qc_sv)
+        else:
+            # baseline: regular qiskit transpile
+            tqc = transpile(qc_sv, sim)
     else:
-        tqc = transpile(qc_run, sim)
+        if transpiler == "custom":
+            pm = make_custom_pm()
+            tqc = pm.run(qc_run)
+        else:
+            tqc = transpile(qc_run, sim)
     transpile_s = time.perf_counter() - transpile_t0
 
+    # simulation time
     simulate_t0 = time.perf_counter()
     result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
     simulate_s = time.perf_counter() - simulate_t0
 
+    # get the results
     if task == "statevector":
         vec = result.get_statevector(tqc)
         try:

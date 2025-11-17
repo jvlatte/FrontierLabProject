@@ -12,6 +12,8 @@ from qgpusim.backends.aer.backend import create_simulator
 from qgpusim.circuits.builders import build_circuit
 from qgpusim.metrics.correctness import total_variation_distance, statevector_overlap
 from qgpusim.runner import run_once
+from qgpusim.transpiler.pm import make_baseline_pm, make_custom_pm
+
 
 
 def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: QuantumCircuit):
@@ -19,7 +21,8 @@ def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: Qu
     sim, device_used = create_simulator(backend=args.backend, task=args.tasks)
     #device_used = "GPU" if (args.backend == "gpu") else "CPU"
     for i in range(args.repeats):
-        trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=args.tasks, shots=args.shots, measure=True)
+        trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=args.tasks, 
+                                                                       shots=args.shots, measure=True, transpiler=args.transpiler)
         final_str = (
         f"Run {i+1}/{args.repeats} on {args.backend} took {trans_elapsed:.4f} sec "
         f"to transpile and {sim_elapsed:.4f} sec to simulate. "
@@ -115,7 +118,7 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
     # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
     # for i in range(args.repeats):
     ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
-        sim=cpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True)
+        sim=cpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True, transpiler=args.transpiler)
 
     # extract ref artifact
     ref_sv = ref_extra.get("statevector") if args.tasks == "statevector" else None
@@ -133,7 +136,8 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
         raise RuntimeError("GPU not present/available")
 
     for i in range(args.repeats):
-        transpile_s, simulate_s, extra, g_stats, g_res = run_once(sim=gpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True)
+        transpile_s, simulate_s, extra, g_stats, g_res = run_once(sim=gpu_sim, qc=qc,task=args.tasks, 
+                                                                  shots=args.shots, measure=True, transpiler=args.transpiler)
         total_s = transpile_s + simulate_s
 
         note = ""
@@ -195,6 +199,8 @@ def main():
     parser.add_argument("--csv", type=str, default=str(csv_path))
 
     #parser.add_argument("--csv", type=str, default="results/result.csv", help="Path to CSV log (e.g., results/bench.csv)")
+
+    parser.add_argument("--transpiler", type=str, choices=["baseline", "custom"], default="baseline")
 
     args = parser.parse_args()
     
