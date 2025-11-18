@@ -53,6 +53,7 @@ def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: Qu
                 "gpu_mem_mb": res_usage.get("gpu_mem_mb",""),
                 "gpu_util": res_usage.get("gpu_util",""),
                 "notes": "",  # e.g., layout/method variants later
+                "transpiler": args.transpiler
             }
             _append_csv(args.csv, row, fieldnames)
 
@@ -85,6 +86,7 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
             "simulate_s": f"{t_sim:.6f}",
             "total_s": f"{t_trans + t_sim:.6f}",
             "notes": notes,
+            "transpiler": args.transpiler
         }
         return row
 
@@ -215,7 +217,8 @@ def main():
     "rss_mb","gpu_mem_mb","gpu_util",
     # NEW correctness (will be blank if not applicable)
     "overlap","l2","tvd","kl_div","passed",
-    "notes"
+    "notes",
+    "transpiler"
     ]
     if args.csv:
         _ensure_csv(args.csv, fieldnames)

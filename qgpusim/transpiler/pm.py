@@ -1,15 +1,28 @@
 from qiskit.transpiler import PassManager
 from qiskit.transpiler.passes import Optimize1qGates, CommutativeCancellation
-from .passes import MyFirstPass
+from .passes import CancelSelfInversePairs, QubitInteractionAnalysis
 
 def make_baseline_pm():
     pm = PassManager()
     pm.append([Optimize1qGates(), CommutativeCancellation()])
-    print("went through basline pass")
     return pm
 
 def make_custom_pm():
     pm = make_baseline_pm()
-    print("went through custom pass")
-    pm.append(MyFirstPass())
+    # run our extra optimization after the standard ones
+    print("reached custom passes")
+    pm.append(CancelSelfInversePairs())
+    return pm
+def make_custom_pm() -> PassManager:
+    pm = PassManager()
+
+    # local optimizations by qiskit transpiler already
+    pm.append([Optimize1qGates(), CommutativeCancellation()])
+
+    # build qubit–qubit interaction graph
+    pm.append(QubitInteractionAnalysis())
+
+    pm.append(CancelSelfInversePairs())
+
+
     return pm
