@@ -28,7 +28,8 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
         final_str = (
         f"Run {i+1}/{combo['repeats']} on {combo['backend']} took {trans_elapsed:.4f} sec "
         f"to transpile and {sim_elapsed:.4f} sec to simulate. "
-        f"Total: {(trans_elapsed + sim_elapsed):.4f}. Extra: {extra}"
+        f"Total: {(trans_elapsed + sim_elapsed):.4f}. "
+        # f"Extra: {extra}"
         )
         print(final_str)
 
@@ -185,6 +186,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
 
 def main2():
     # parameters to tweak
+
     params = {
         "backend": ["cpu", "gpu", "compare"],
         "tasks": ["statevector", "sampling"],
@@ -207,6 +209,18 @@ def main2():
         "repeats": [1],
         "seed": [42],
         "transpiler": ["baseline", "custom"]
+    }
+
+    params = {
+        "backend": ["cpu"],
+        "tasks": ["statevector"],
+        "circuit": ["random"],
+        "nqubits": [15],
+        "depth": [4],
+        "shots": [1024],
+        "repeats": [1],
+        "seed": [42],
+        "transpiler": ["custom"]
     }
 
 

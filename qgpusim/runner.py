@@ -23,10 +23,19 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
         qc_sv.save_statevector()
 
         if transpiler == "custom":
+            print("running through custom transpiler")
             # custom pass manager
+            tqc = transpile(qc_sv, sim)
+
+            # 2) extra passes on top of that
             pm = make_custom_pm()
-            tqc = pm.run(qc_sv)
+            tqc = pm.run(tqc)
+
+            # # code before adding on to baseline transpiler
+            # pm = make_custom_pm()
+            # tqc = pm.run(qc_sv)
         else:
+            print("running through baseline transpiler")
             # baseline: regular qiskit transpile
             tqc = transpile(qc_sv, sim)
     else:
