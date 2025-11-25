@@ -1,0 +1,6 @@
+{
+  "backend": ["cpu", "gpu"],
+  "tasks": ["statevector", "sampling"],
+  "nqubits": [8, 10],
+  "depth": [2, 4]
+}

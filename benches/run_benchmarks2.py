@@ -26,7 +26,7 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
                                                                        shots=combo["shots"], measure=True, 
                                                                        transpiler=combo["transpiler"])
         final_str = (
-        f"Run {i+1}/{combo["repeats"]} on {combo["backend"]} took {trans_elapsed:.4f} sec "
+        f"Run {i+1}/{combo['repeats']} on {combo['backend']} took {trans_elapsed:.4f} sec "
         f"to transpile and {sim_elapsed:.4f} sec to simulate. "
         f"Total: {(trans_elapsed + sim_elapsed):.4f}. Extra: {extra}"
         )
@@ -154,7 +154,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             ov, l2 = statevector_overlap(ref_sv, gpu_sv)
             passed = (ov > 1 - 1e-9)
             print(
-                f"[GPU sv] rep {i+1}/{combo["repeats"]} | overlap={ov:.12f} l2={l2:.3e} "
+                f"[GPU sv] rep {i+1}/{combo['repeats']} | overlap={ov:.12f} l2={l2:.3e} "
                 f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
             )
             note = f"overlap={ov:.12f}; l2={l2:.3e}; pass={passed}"
@@ -167,7 +167,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             passed = (tvd < 0.02)
             kl = _kl_div(ref_counts, gpu_counts) if "kl_div" in fieldnames else None
             print(
-                f"[GPU sampling] rep {i+1}/{combo["repeats"]} | TVD={tvd:.6f}"
+                f"[GPU sampling] rep {i+1}/{combo['repeats']} | TVD={tvd:.6f}"
                 + (f" KL={kl:.6f}" if kl is not None else "")
                 + f" | t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
             )
@@ -216,8 +216,8 @@ def main2():
         config = dict(zip(keys, combination))
         config_list.append(config)
 
-    print(config_list)
-    print(f"total number is {len(config_list)}")
+    # print(config_list)
+    # print(f"total number is {len(config_list)}")
 
 
     parser = argparse.ArgumentParser(description="Benchmarking Script")
@@ -264,7 +264,9 @@ def main2():
     env = _env_info()
 
     # start loop through combinations
+    combo_num = 1
     for combo in config_list:
+        print(f"\n=== Running combo {combo_num}/{len(config_list)}: {combo} ===")
 
         # prepare circuit
         qc = build_circuit(combo["circuit"], combo["nqubits"], combo["depth"], combo["seed"])
@@ -274,11 +276,10 @@ def main2():
         if combo["backend"] == "compare":
             # compare both cpu and gpu statevector
             compare_both_backends(combo, qc, fieldnames, args.csv)
-            return
         else:
             # only cpu or gpu+cpu
             single_backend(combo, fieldnames, env, qc, args)
-
+        combo_num += 1
 
 if __name__ == "__main__":
     main2()
