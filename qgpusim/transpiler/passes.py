@@ -87,3 +87,14 @@ class QubitInteractionAnalysis(AnalysisPass):
         self.property_set["qubit_interaction_graph"] = dict(interactions)
         return dag
 
+
+class LazyQubitReordering(TransformationPass):
+    "lets pray"
+    def __init__(self, metadata: dict):
+        super().__init__()
+        self.metadata = metadata
+
+    def run(self, dag: DAGCircuit) -> DAGCircuit:
+        op_nodes = list(dag.topological_op_nodes())
+        
+        pass

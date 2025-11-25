@@ -1,2 +1,2 @@
 timestamp,host,os,python,backend,device,task,circuit,nqubits,depth,shots,repeat_idx,transpile_s,simulate_s,total_s,nqubits_t,depth_t,twoq_count,cx_count,cz_count,swap_count,rz_count,rx_count,rss_mb,gpu_mem_mb,gpu_util,overlap,l2,tvd,kl_div,passed,notes,transpiler
-2025-11-18T13:09:50,Joshuas-MacBook-Pro-5.local,macOS-14.2.1-arm64-arm-64bit,3.11.2,cpu,CPU,statevector,random,10,4,0,1,0.004257,0.008597,0.012854,10,16,36,36,0,0,40,40,66.42,,,,,,,,,custom
+2025-11-20T15:32:59,Joshuas-MacBook-Pro-5.local,macOS-14.2.1-arm64-arm-64bit,3.11.2,cpu,CPU,statevector,random,10,4,0,1,0.119057,0.008587,0.127644,10,12,36,36,0,0,0,0,68.33,,,,,,,,,baseline

@@ -17,15 +17,16 @@ from qgpusim.transpiler.pm import make_baseline_pm, make_custom_pm
 
 
 
-def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: QuantumCircuit):
+def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, args):
     # only cpu or gpu+cpu
-    sim, device_used = create_simulator(backend=args.backend, task=args.tasks)
+    sim, device_used = create_simulator(combo["backend"], combo["tasks"])
     #device_used = "GPU" if (args.backend == "gpu") else "CPU"
-    for i in range(args.repeats):
-        trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=args.tasks, 
-                                                                       shots=args.shots, measure=True, transpiler=args.transpiler)
+    for i in range(combo["repeats"]):
+        trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=combo["tasks"], 
+                                                                       shots=combo["shots"], measure=True, 
+                                                                       transpiler=combo["transpiler"])
         final_str = (
-        f"Run {i+1}/{args.repeats} on {args.backend} took {trans_elapsed:.4f} sec "
+        f"Run {i+1}/{combo["repeats"]} on {combo["backend"]} took {trans_elapsed:.4f} sec "
         f"to transpile and {sim_elapsed:.4f} sec to simulate. "
         f"Total: {(trans_elapsed + sim_elapsed):.4f}. Extra: {extra}"
         )
@@ -38,13 +39,13 @@ def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: Qu
                 "host": env["host"],
                 "os": env["os"],
                 "python": env["python"],
-                "backend": args.backend,
+                "backend": combo["backend"],
                 "device": device_used,
-                "task": args.tasks,
-                "circuit": args.circuit,
-                "nqubits": args.nqubits,
-                "depth": args.depth,
-                "shots": args.shots if args.tasks == "sampling" else 0,
+                "task": combo["tasks"],
+                "circuit": combo["circuit"],
+                "nqubits": combo["nqubits"],
+                "depth": combo["depth"],
+                "shots": combo["shots"] if combo["tasks"] == "sampling" else 0,
                 "repeat_idx": i + 1,
                 "transpile_s": f"{trans_elapsed:.6f}",
                 "simulate_s": f"{sim_elapsed:.6f}",
@@ -54,13 +55,13 @@ def single_backend(args: argparse.Namespace, fieldnames: list, env: dict, qc: Qu
                 "gpu_mem_mb": res_usage.get("gpu_mem_mb",""),
                 "gpu_util": res_usage.get("gpu_util",""),
                 "notes": "",  # e.g., layout/method variants later
-                "transpiler": args.transpiler
+                "transpiler": combo["transpiler"]
             }
             _append_csv(args.csv, row, fieldnames)
 
 
 
-def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_path: Optional[str]):
+def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str], csv_path: Optional[str]):
     # last arg might not be needed
     env = _env_info()
 
@@ -77,17 +78,17 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
             "python": env.get("python", ""),
             "backend": backend,
             "device": device,
-            "task": args.tasks,
-            "circuit": args.circuit,
-            "nqubits": args.nqubits,
-            "depth": args.depth,
-            "shots": args.shots if args.tasks == "sampling" else 0,
+            "task": combo["tasks"],
+            "circuit": combo["circuit"],
+            "nqubits": combo["nqubits"],
+            "depth": combo["depth"],
+            "shots": combo["shots"] if combo["tasks"] == "sampling" else 0,
             "repeat_idx": repeat_idx,
             "transpile_s": f"{t_trans:.6f}",
             "simulate_s": f"{t_sim:.6f}",
             "total_s": f"{t_trans + t_sim:.6f}",
             "notes": notes,
-            "transpiler": args.transpiler
+            "transpiler": combo["transpiler"]
         }
         return row
 
@@ -116,16 +117,16 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
         
 
     # build CPU ref sim
-    cpu_sim, cpu_device = create_simulator("cpu", args.tasks)
+    cpu_sim, cpu_device = create_simulator("cpu", combo["tasks"])
 
     # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
     # for i in range(args.repeats):
     ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
-        sim=cpu_sim, qc=qc,task=args.tasks, shots=args.shots, measure=True, transpiler=args.transpiler)
+        sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True, transpiler=combo["transpiler"])
 
     # extract ref artifact
-    ref_sv = ref_extra.get("statevector") if args.tasks == "statevector" else None
-    ref_counts = ref_extra.get("counts") if args.tasks != "statevector" else None
+    ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
+    ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
 
     if csv_path:
         cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes="reference")
@@ -134,13 +135,13 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
         _append_csv(csv_path, _filtered(cpu_row), fieldnames)
 
     # gpu part now; keep running until repeats end
-    gpu_sim, gpu_device = create_simulator("gpu", args.tasks)
+    gpu_sim, gpu_device = create_simulator("gpu", combo["tasks"])
     if "GPU" not in gpu_device:
         raise RuntimeError("GPU not present/available")
 
-    for i in range(args.repeats):
-        transpile_s, simulate_s, extra, g_stats, g_res = run_once(sim=gpu_sim, qc=qc,task=args.tasks, 
-                                                                  shots=args.shots, measure=True, transpiler=args.transpiler)
+    for i in range(combo["repeats"]):
+        transpile_s, simulate_s, extra, g_stats, g_res = run_once(sim=gpu_sim, qc=qc,task=combo["tasks"], 
+                                                                  shots=combo["shots"], measure=True, transpiler=combo["transpiler"])
         total_s = transpile_s + simulate_s
 
         note = ""
@@ -148,12 +149,12 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
         _inject_stats(row, g_stats, g_res)
 
         # correctness
-        if args.tasks == "statevector":
+        if combo["tasks"] == "statevector":
             gpu_sv = extra.get("statevector")
             ov, l2 = statevector_overlap(ref_sv, gpu_sv)
             passed = (ov > 1 - 1e-9)
             print(
-                f"[GPU sv] rep {i+1}/{args.repeats} | overlap={ov:.12f} l2={l2:.3e} "
+                f"[GPU sv] rep {i+1}/{combo["repeats"]} | overlap={ov:.12f} l2={l2:.3e} "
                 f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
             )
             note = f"overlap={ov:.12f}; l2={l2:.3e}; pass={passed}"
@@ -166,7 +167,7 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
             passed = (tvd < 0.02)
             kl = _kl_div(ref_counts, gpu_counts) if "kl_div" in fieldnames else None
             print(
-                f"[GPU sampling] rep {i+1}/{args.repeats} | TVD={tvd:.6f}"
+                f"[GPU sampling] rep {i+1}/{combo["repeats"]} | TVD={tvd:.6f}"
                 + (f" KL={kl:.6f}" if kl is not None else "")
                 + f" | t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
             )
@@ -181,12 +182,44 @@ def compare_both_backends(args, qc: QuantumCircuit, fieldnames: List[str], csv_p
             _append_csv(csv_path, _filtered(row), fieldnames)
 
 
-# class ArgumentParameters:
-#     def __init__(self, args: Dict):
-#         self.args = args
+
+def main2():
+    # parameters to tweak
+    params = {
+        "backend": ["cpu", "gpu", "compare"],
+        "tasks": ["statevector", "sampling"],
+        "circuit": ["random", "ghz", "qft"],
+        "nqubits": [10, 15, 20, 25],
+        "depth": [4, 6, 8, 10],
+        "shots": [1024],
+        "repeats": [1],
+        "seed": [42],
+        "transpiler": ["baseline", "custom"]
+    }
+
+    params = {
+        "backend": ["compare"],
+        "tasks": ["statevector"],
+        "circuit": ["random"],
+        "nqubits": [10, 15, 20, 25],
+        "depth": [4, 6],
+        "shots": [1024],
+        "repeats": [1],
+        "seed": [42],
+        "transpiler": ["baseline", "custom"]
+    }
 
 
-def main():
+    keys = params.keys()
+    config_list = []
+    for combination in product(*params.values()):
+        config = dict(zip(keys, combination))
+        config_list.append(config)
+
+    print(config_list)
+    print(f"total number is {len(config_list)}")
+
+
     parser = argparse.ArgumentParser(description="Benchmarking Script")
 
     parser.add_argument("--backend", type=str, choices=["cpu", "gpu", "compare"], default="cpu")
@@ -230,20 +263,22 @@ def main():
             writer.writeheader()
     env = _env_info()
 
+    # start loop through combinations
+    for combo in config_list:
 
-    # prepare circuit
-    qc = build_circuit(circuit=args.circuit, n_qubits=args.nqubits, depth=args.depth, seed=args.seed)
+        # prepare circuit
+        qc = build_circuit(combo["circuit"], combo["nqubits"], combo["depth"], combo["seed"])
 
-    # prepare backends
-    if args.backend == "compare":
-        # compare both cpu and gpu statevector
-        compare_both_backends(args, qc, fieldnames, args.csv)
-        return
-    else:
-        # only cpu or gpu+cpu
-        single_backend(args, fieldnames, env, qc)
 
+        # prepare backends
+        if combo["backend"] == "compare":
+            # compare both cpu and gpu statevector
+            compare_both_backends(combo, qc, fieldnames, args.csv)
+            return
+        else:
+            # only cpu or gpu+cpu
+            single_backend(combo, fieldnames, env, qc, args)
 
 
 if __name__ == "__main__":
-    main()
+    main2()
