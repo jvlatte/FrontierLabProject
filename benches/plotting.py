@@ -6,15 +6,59 @@ import argparse
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+# def plot_runtime_vs_n(df, outdir):
+#     for task in sorted(df['task'].dropna().unique()):
+#         sub = df[df['task']==task]
+#         if sub.empty: 
+#             continue
+#         plt.figure()
+#         for backend in sorted(sub['backend'].dropna().unique()):
+#             ss = sub[sub['backend']==backend].groupby(['nqubits'], as_index=False)['total_s'].median()
+#             plt.plot(ss['nqubits'], ss['total_s'], marker='o', label=backend)
+#         plt.xlabel('nqubits')
+#         plt.ylabel('total time (s)')
+#         plt.title(f'Runtime vs nqubits — {task}')
+#         plt.legend()
+#         plt.tight_layout()
+#         plt.savefig(outdir / f'rt_vs_n_{task}.png', dpi=160)
+#         plt.close()
+
 def plot_runtime_vs_n(df, outdir):
     for task in sorted(df['task'].dropna().unique()):
-        sub = df[df['task']==task]
-        if sub.empty: 
+        sub = df[df['task'] == task]
+        if sub.empty:
             continue
         plt.figure()
-        for backend in sorted(sub['backend'].dropna().unique()):
-            ss = sub[sub['backend']==backend].groupby(['nqubits'], as_index=False)['total_s'].median()
-            plt.plot(ss['nqubits'], ss['total_s'], marker='o', label=backend)
+
+        # cpu
+        cpu_sub = sub[sub['backend'] == 'cpu']
+        if not cpu_sub.empty:
+            cpu_med = (
+                cpu_sub
+                .groupby('nqubits', as_index=False)['total_s']
+                .median()
+                .sort_values('nqubits')
+            )
+            plt.plot(cpu_med['nqubits'], cpu_med['total_s'],
+                     marker='o', label='cpu')
+
+        # gpu combo
+        gpu_sub = sub[sub['backend'] == 'gpu']
+        if not gpu_sub.empty:
+            for transp in sorted(gpu_sub['transpiler'].dropna().unique()):
+                grp = gpu_sub[gpu_sub['transpiler'] == transp]
+                if grp.empty:
+                    continue
+                gpu_med = (
+                    grp
+                    .groupby('nqubits', as_index=False)['total_s']
+                    .median()
+                    .sort_values('nqubits')
+                )
+                label = f"gpu + {transp}"
+                plt.plot(gpu_med['nqubits'], gpu_med['total_s'],
+                            marker='o', label=label)
+
         plt.xlabel('nqubits')
         plt.ylabel('total time (s)')
         plt.title(f'Runtime vs nqubits — {task}')
@@ -22,6 +66,7 @@ def plot_runtime_vs_n(df, outdir):
         plt.tight_layout()
         plt.savefig(outdir / f'rt_vs_n_{task}.png', dpi=160)
         plt.close()
+
 
 def plot_transpile_sim_breakdown(df, outdir):
     sub = df.groupby(['backend','task'], as_index=False)[['transpile_s','simulate_s']].median()
