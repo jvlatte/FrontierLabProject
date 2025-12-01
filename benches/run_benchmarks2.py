@@ -199,29 +199,29 @@ def main2():
     #     "transpiler": ["baseline", "custom"]
     # }
 
-    params = {
-        "backend": ["compare"],
-        "tasks": ["statevector"],
-        "circuit": ["random"],
-        "nqubits": [10, 15, 20, 25],
-        "depth": [4],
-        "shots": [1024],
-        "repeats": [5],
-        "seed": [42],
-        "transpiler": ["custom", "baseline"]
-    }
-
     # params = {
     #     "backend": ["compare"],
     #     "tasks": ["statevector"],
     #     "circuit": ["random"],
-    #     "nqubits": [15],
+    #     "nqubits": [10, 15, 20, 25],
     #     "depth": [4],
     #     "shots": [1024],
-    #     "repeats": [1],
+    #     "repeats": [5],
     #     "seed": [42],
-    #     "transpiler": ["baseline", "custom"]
+    #     "transpiler": ["custom", "baseline"]
     # }
+
+    params = {
+        "backend": ["compare"],
+        "tasks": ["statevector"],
+        "circuit": ["random"],
+        "nqubits": [15],
+        "depth": [4],
+        "shots": [1024],
+        "repeats": [5],
+        "seed": [42],
+        "transpiler": ["baseline", "custom"]
+    }
 
 
     keys = params.keys()

@@ -23,7 +23,7 @@ def make_custom_pm() -> PassManager:
     pm.append(QubitInteractionAnalysis())
 
     # 2) do lazy reordering based on that graph
-    # pm.append(LazyQubitReordering())
+    pm.append(LazyQubitReordering(4))
 
     # 3) extra local cleanups
     pm.append(CancelSelfInversePairs())

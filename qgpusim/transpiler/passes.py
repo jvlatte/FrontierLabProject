@@ -91,91 +91,353 @@ class QubitInteractionAnalysis(AnalysisPass):
 
 
 
+# class LazyQubitReordering(TransformationPass):
+#     def __init__(self, nL: int):
+#         super().__init__()
+#         self.nL = nL
+
+#     def tile_construction(self):
+#         # algorithm 2
+#         pass
+
+#     def greedy_qubit_mapping(self):
+#         # algorithm 3
+#         pass
+
+#     def flat_tiling(self, Q: Set[int], C: 
+#                     Set[DAGOpNode], T_map: Dict[DAGOpNode, 
+#                     Set[int]], nL: int) -> Tuple[list[DAGOpNode], dict[DAGOpNode, set[int]]]:
+#         # algorithm 1
+
+#         # Q_L <- {0, 1, ..., n_L - 1}
+#         # (local qubit indices; we assume nL <= |Q|)
+#         QL: Set[int] = set(range(min(nL, len(Q))))
+
+#         Cremain = C
+
+#         g_schedule = []
+#         M = {}
+
+#         x = 0  # position in schedule g
+
+#         while Cremain:
+#             G = self.tile_construction(QL, Cremain, T_map, nL)
+
+#             # if tile construction returns empty, avoid infinite loop.
+#             if not G:
+#                 # schedule the first remaining gate as a single-tile G.
+#                 G = [Cremain[0]]
+
+#             # for j = 0 ... |G| - 1 do
+#             for gate in G:
+#                 # g(x) <- j-th gate of tile G
+#                 g_schedule.append(gate)
+
+#                 # M(g(x)) <- Q_L
+#                 # (Store a *copy* of the current local set so later QL changes
+#                 #  won’t mutate past entries.)
+#                 M[gate] = set(QL)
+#                 x += 1
+
+#                 Cremain = [g for g in Cremain if g is not gate]
+
+
+#             # # Cremain <- C_remain \ {g(x)}
+#             # G_set = set(G)
+#             # Cremain = [gate for gate in Cremain if gate not in G_set]
+
+#             if Cremain:
+#                 # Q_L <- QubitMapping(Q, C_remain, T, nL)
+#                 QL = self.qubit_mapping(Q, Cremain, T_map, nL)
+
+#         # return (g, M)
+#         return g_schedule, M
+
+
+
+#     def run(self, dag: DAGCircuit) -> DAGCircuit:
+#         # prepare inputs for algoritm
+#         num_qubits = len(dag.qubits)
+#         Q = set(range(num_qubits))
+
+#         # map daq qubit -> int index
+#         qindex = {q: i for i, q in enumerate(dag.qubits)}
+
+#         C = set(dag.topological_op_nodes())  # C : set[DAGOpNode]
+#         C = sorted(C, key=lambda x: dag.node_depth(x))
+#         # m = len(C)   # number of gates
+
+#         T_map = {node: {qindex[q] for q in node.qargs} for node in C} # T_map: Dict[DAGOpNode, Set[int]]
+
+#         g, M = self.flat_tiling(Q, C, T_map, self.nL)
+
+
+
+
 class LazyQubitReordering(TransformationPass):
     def __init__(self, nL: int):
         super().__init__()
         self.nL = nL
 
-    def tile_construction(self):
-        # algorithm 2
-        pass
+    # ---------------- Algorithm 2: TileConstruction ----------------
+    def tile_construction(
+        self,
+        QL: Set[int],
+        Cremain: List[DAGOpNode],
+        T_map: Dict[DAGOpNode, Set[int]],
+    ) -> List[DAGOpNode]:
+        """
+        TILECONSTRUCTION(Q_L, C, T)
+        Input:
+            QL      - set of *local* qubits for the current tile
+            Cremain - ordered list of remaining gates (by depth)
+            T_map   - node -> set of (global) qubit indices
 
-    def greedy_qubit_mapping(self):
-        # algorithm 3
-        pass
+        Output:
+            Tile G: ordered list of DAGOpNode
+        """
+        # 2: Q_avail <- Q_L
+        Q_avail: Set[int] = set(QL)
+        # 3: G <- ∅
+        G: List[DAGOpNode] = []
+        # 4: C' <- C   (we just iterate over Cremain in order)
+        C_prime = list(Cremain)
 
-    def flat_tiling(self, Q: Set[int], C: 
-                    Set[DAGOpNode], T_map: Dict[DAGOpNode, 
-                    Set[int]], nL: int) -> Tuple[list[DAGOpNode], dict[DAGOpNode, set[int]]]:
-        # algorithm 1
+        # 5: for i = 0 ... |C'| - 1 do
+        for U in C_prime:
+            # 7: if T(U) ⊆ Q_avail then
+            targets = T_map[U]
+            if targets.issubset(Q_avail):
+                # 8: Append U to the tail of G;
+                G.append(U)
+                # 9: C' <- C' \ {U}   (not needed explicitly in Python loop)
+            else:
+                # 11: Q_avail <- Q_avail \ T(U)
+                Q_avail -= targets
+                # 12: if Q_avail = ∅ then break
+                if not Q_avail:
+                    break
 
-        # Q_L <- {0, 1, ..., n_L - 1}
-        # (local qubit indices; we assume nL <= |Q|)
+        # 14: return G
+        return G
+
+    # ---------------- Algorithm 3: QubitMapping ----------------
+    def greedy_qubit_mapping(
+        self,
+        Q: Set[int],
+        Cremain: List[DAGOpNode],
+        T_map: Dict[DAGOpNode, Set[int]],
+        nL: int,
+    ) -> Set[int]:
+        """
+        QUBITMAPPING(Q, C, T, n_L)
+        Returns updated Q_L for the *next* tile.
+        """
+        # 2: Q_avail <- Q
+        Q_avail: Set[int] = set(Q)
+        # 3: Q_L <- ∅
+        QL: Set[int] = set()
+        # 4: C' <- C
+        C_prime = list(Cremain)
+
+        # 5: for i = 0 ... |C'| - 1 do
+        for U in C_prime:
+            targets = T_map[U]
+            # 7: if T(U) ⊆ Q_avail ∧ |Q_L ∪ T(U)| ≤ n_L then
+            if targets.issubset(Q_avail) and len(QL | targets) <= nL:
+                # 8: Q_L <- Q_L ∪ T(U)
+                QL |= targets
+            else:
+                # 10: Q_avail <- Q_avail \ T(U)
+                Q_avail -= targets
+                # 11–12: if Q_avail = ∅ then break
+                if not Q_avail:
+                    break
+
+        # 13–14: if Q_L = ∅ then return ∅
+        if not QL:
+            return set()
+
+        # 15–17: while |Q_L| < n_L, fill with lowest remaining qubits
+        if len(QL) < nL:
+            remaining = sorted(Q - QL)
+            for q in remaining:
+                if len(QL) >= nL:
+                    break
+                QL.add(q)
+
+        # 18: return Q_L
+        return QL
+
+    # alias so your existing call self.qubit_mapping(...) still works
+    qubit_mapping = greedy_qubit_mapping
+
+    # ---------------- Algorithm 1: FlatTimeSpaceTiling ----------------
+    def flat_tiling(
+        self,
+        Q: Set[int],
+        C: List[DAGOpNode],
+        T_map: Dict[DAGOpNode, Set[int]],
+        nL: int,
+    ) -> Tuple[List[DAGOpNode], Dict[DAGOpNode, Set[int]]]:
+        """
+        FLATTIMESPACETILING(Q, C, T, n_L)
+
+        Returns:
+            g_schedule: ordered list of gates g(0),...,g(m-1)
+            M: mapping M[gate] = set of local qubits Q_L used for that gate
+        """
+        # 2: Q_L <- {0, 1, ..., n_L - 1}
         QL: Set[int] = set(range(min(nL, len(Q))))
+        # 3: C_remain <- (Sort C in ascending order of depths)
+        Cremain: List[DAGOpNode] = list(C)  # already sorted by caller
 
-        Cremain = C
+        g_schedule: List[DAGOpNode] = []
+        M: Dict[DAGOpNode, Set[int]] = {}
 
-        g_schedule = []
-        M = {}
-
-        x = 0  # position in schedule g
-
+        # 4: x <- 0   (we just use len(g_schedule) instead of explicit x)
         while Cremain:
-            G = self.tile_construction(QL, Cremain, T_map, nL)
+            # 6: G <- TILECONSTRUCTION(Q_L, C_remain, T)
+            G = self.tile_construction(QL, Cremain, T_map)
 
-            # if tile construction returns empty, avoid infinite loop.
+            # Safety: avoid infinite loop if TILECONSTRUCTION somehow
+            # returns empty even though Cremain is non-empty.
             if not G:
-                # schedule the first remaining gate as a single-tile G.
                 G = [Cremain[0]]
 
-            # for j = 0 ... |G| - 1 do
+            # 7–11: for every gate in the tile
             for gate in G:
                 # g(x) <- j-th gate of tile G
                 g_schedule.append(gate)
-
-                # M(g(x)) <- Q_L
-                # (Store a *copy* of the current local set so later QL changes
-                #  won’t mutate past entries.)
+                # M(g(x)) <- Q_L    (store a copy!)
                 M[gate] = set(QL)
-                x += 1
-
+                # C_remain <- C_remain \ {g(x)}
                 Cremain = [g for g in Cremain if g is not gate]
 
-
-            # # Cremain <- C_remain \ {g(x)}
-            # G_set = set(G)
-            # Cremain = [gate for gate in Cremain if gate not in G_set]
-
+            # 12: Q_L <- QubitMapping(Q, C_remain, T, n_L)
             if Cremain:
-                # Q_L <- QubitMapping(Q, C_remain, T, nL)
                 QL = self.qubit_mapping(Q, Cremain, T_map, nL)
 
-        # return (g, M)
+        # 13: return (g, M)
         return g_schedule, M
+    
 
 
-        pass
+        # ------------- Helpers: extract tiles & summarize ----------------
+    @staticmethod
+    def extract_tiles(
+        g_schedule: list[DAGOpNode],
+        M: dict[DAGOpNode, set[int]],
+    ):
+        """
+        Group gates into tiles where Q_L stays constant.
+        Returns a list of (Q_L, [gate1, gate2, ...]) pairs.
+        """
+        tiles = []
+        if not g_schedule:
+            return tiles
+
+        curr_ql = M[g_schedule[0]]
+        curr_tile = [g_schedule[0]]
+
+        for node in g_schedule[1:]:
+            if M[node] == curr_ql:
+                curr_tile.append(node)
+            else:
+                tiles.append((curr_ql, curr_tile))
+                curr_ql = M[node]
+                curr_tile = [node]
+
+        tiles.append((curr_ql, curr_tile))
+        return tiles
+
+    @staticmethod
+    def summarize_tiling(
+        g_schedule: list[DAGOpNode],
+        M: dict[DAGOpNode, set[int]],
+    ):
+        """
+        Compute simple statistics about the tiling:
+          - number of tiles
+          - avg tile size (gates per tile)
+          - max tile size
+          - avg |Q_L|
+          - max |Q_L|
+        Returns a dict with these fields.
+        """
+        tiles = LazyQubitReordering.extract_tiles(g_schedule, M)
+        num_tiles = len(tiles)
+        if num_tiles == 0:
+            return {
+                "num_tiles": 0,
+                "avg_tile_size": 0.0,
+                "max_tile_size": 0,
+                "avg_Q_L_size": 0.0,
+                "max_Q_L_size": 0,
+            }
+
+        tile_sizes = [len(gates) for (_ql, gates) in tiles]
+        ql_sizes = [len(ql) for (ql, _gates) in tiles]
+
+        avg_tile_size = sum(tile_sizes) / num_tiles
+        max_tile_size = max(tile_sizes)
+        avg_ql_size = sum(ql_sizes) / num_tiles
+        max_ql_size = max(ql_sizes)
+
+        return {
+            "num_tiles": num_tiles,
+            "avg_tile_size": avg_tile_size,
+            "max_tile_size": max_tile_size,
+            "avg_Q_L_size": avg_ql_size,
+            "max_Q_L_size": max_ql_size,
+        }
 
 
+    # ---------------- Qiskit pass entry point ----------------
     def run(self, dag: DAGCircuit) -> DAGCircuit:
-        # prepare inputs for algoritm
         num_qubits = len(dag.qubits)
         Q = set(range(num_qubits))
 
-        # map daq qubit -> int index
+        # map DAG qubit -> int index
         qindex = {q: i for i, q in enumerate(dag.qubits)}
 
-        C = set(dag.topological_op_nodes())  # C : set[DAGOpNode]
-        C = sorted(C, key=lambda x: dag.node_depth(x))
-        # m = len(C)   # number of gates
+        # Get gates in topological order
+        C_list: List[DAGOpNode] = list(dag.topological_op_nodes())
 
-        T_map = {node: {qindex[q] for q in node.qargs} for node in C} # T_map: Dict[DAGOpNode, Set[int]]
+        # ---- manual depth computation (no node_depth / level needed) ----
+        # last_depth[i] = depth of the last gate that used qubit i
+        last_depth = {i: -1 for i in range(num_qubits)}
+        node_depth: Dict[DAGOpNode, int] = {}
 
-        g, M = self.flat_tiling(Q, C, T_map, self.nL)
+        for node in C_list:
+            qubit_indices = [qindex[q] for q in node.qargs]
 
+            if qubit_indices:
+                d = max(last_depth[i] for i in qubit_indices) + 1
+            else:
+                # gate with no qubits (rare), put at depth 0
+                d = 0
 
+            node_depth[node] = d
+            for i in qubit_indices:
+                last_depth[i] = d
 
+        # Sort gates by computed depth (Algorithm 1 assumes this)
+        C_list.sort(key=lambda n: node_depth[n])
+        # ----------------------------------------------------------------
 
+        # T_map: node -> set[int] (global qubit indices)
+        T_map: Dict[DAGOpNode, Set[int]] = {
+            node: {qindex[q] for q in node.qargs} for node in C_list
+        }
+
+        g_schedule, M = self.flat_tiling(Q, C_list, T_map, self.nL)
+
+        # For now, just store results; you can build a new DAG later.
+        self.property_set["flat_tiling_schedule"] = g_schedule
+        self.property_set["flat_tiling_mapping"] = M
+
+        return dag
 
 
 
