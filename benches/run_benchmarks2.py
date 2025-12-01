@@ -119,21 +119,21 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
 
     # build CPU ref sim
     cpu_sim, cpu_device = create_simulator("cpu", combo["tasks"])
+    for i in range(combo["repeats"]):
+        # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
+        # for i in range(args.repeats):
+        ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
+            sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True, transpiler=combo["transpiler"])
 
-    # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
-    # for i in range(args.repeats):
-    ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
-        sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True, transpiler=combo["transpiler"])
+        # extract ref artifact
+        ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
+        ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
 
-    # extract ref artifact
-    ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
-    ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
-
-    if csv_path:
-        cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes="reference")
-        _inject_stats(cpu_row, ref_stats, ref_res)
-        # correctness cols stay blank for ref
-        _append_csv(csv_path, _filtered(cpu_row), fieldnames)
+        if csv_path:
+            cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes="reference")
+            _inject_stats(cpu_row, ref_stats, ref_res)
+            # correctness cols stay blank for ref
+            _append_csv(csv_path, _filtered(cpu_row), fieldnames)
 
     # gpu part now; keep running until repeats end
     gpu_sim, gpu_device = create_simulator("gpu", combo["tasks"])
@@ -187,41 +187,41 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
 def main2():
     # parameters to tweak
 
-    params = {
-        "backend": ["cpu", "gpu", "compare"],
-        "tasks": ["statevector", "sampling"],
-        "circuit": ["random", "ghz", "qft"],
-        "nqubits": [10, 15, 20, 25],
-        "depth": [4, 6, 8, 10],
-        "shots": [1024],
-        "repeats": [1],
-        "seed": [42],
-        "transpiler": ["baseline", "custom"]
-    }
+    # params = {
+    #     "backend": ["cpu", "gpu", "compare"],
+    #     "tasks": ["statevector", "sampling"],
+    #     "circuit": ["random", "ghz", "qft"],
+    #     "nqubits": [10, 15, 20, 25],
+    #     "depth": [4, 6, 8, 10],
+    #     "shots": [1024],
+    #     "repeats": [1],
+    #     "seed": [42],
+    #     "transpiler": ["baseline", "custom"]
+    # }
 
     params = {
         "backend": ["compare"],
         "tasks": ["statevector"],
         "circuit": ["random"],
         "nqubits": [10, 15, 20, 25],
-        "depth": [4, 6],
-        "shots": [1024],
-        "repeats": [1],
-        "seed": [42],
-        "transpiler": ["baseline", "custom"]
-    }
-
-    params = {
-        "backend": ["cpu"],
-        "tasks": ["statevector"],
-        "circuit": ["random"],
-        "nqubits": [15],
         "depth": [4],
         "shots": [1024],
-        "repeats": [1],
+        "repeats": [5],
         "seed": [42],
-        "transpiler": ["custom"]
+        "transpiler": ["custom", "baseline"]
     }
+
+    # params = {
+    #     "backend": ["compare"],
+    #     "tasks": ["statevector"],
+    #     "circuit": ["random"],
+    #     "nqubits": [15],
+    #     "depth": [4],
+    #     "shots": [1024],
+    #     "repeats": [1],
+    #     "seed": [42],
+    #     "transpiler": ["baseline", "custom"]
+    # }
 
 
     keys = params.keys()
