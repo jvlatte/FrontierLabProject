@@ -183,6 +183,148 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             _append_csv(csv_path, _filtered(row), fieldnames)
 
 
+def compare_transpilers_cpu(combo: Dict, qc: QuantumCircuit, fieldnames: List[str], csv_path: Optional[str]):
+    """
+    Compare baseline vs custom transpilers on a CPU backend and log correctness
+    between the two transpilers.
+
+    For each repeat:
+      - Run baseline (reference) -> log a row with no correctness metrics.
+      - Run custom -> compute overlap / TVD vs baseline and log metrics.
+    """
+    env = _env_info()
+
+    def _filtered(row: Dict[str, object]) -> Dict[str, object]:
+        # keep only keys that exist in current CSV header
+        return {k: v for k, v in row.items() if k in fieldnames}
+
+    def _row_base(transpiler: str, device: str, repeat_idx: int,
+                  t_trans: float, t_sim: float, notes: str = "") -> Dict[str, object]:
+        return {
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            "host": env.get("host", ""),
+            "os": env.get("os", ""),
+            "python": env.get("python", ""),
+            "backend": "cpu",
+            "device": device,
+            "task": combo["tasks"],
+            "circuit": combo["circuit"],
+            "nqubits": combo["nqubits"],
+            "depth": combo["depth"],
+            "shots": combo["shots"] if combo["tasks"] == "sampling" else 0,
+            "repeat_idx": repeat_idx,
+            "transpile_s": f"{t_trans:.6f}",
+            "simulate_s": f"{t_sim:.6f}",
+            "total_s": f"{t_trans + t_sim:.6f}",
+            "notes": notes,
+            "transpiler": transpiler,
+        }
+
+    def _kl_div(counts_p: Dict[str, int], counts_q: Dict[str, int], eps: float = 1e-12) -> float:
+        keys = set(counts_p.keys()) | set(counts_q.keys())
+        sp = sum(counts_p.values()) or 1
+        sq = sum(counts_q.values()) or 1
+        k = len(keys) or 1
+        kl = 0.0
+        for key in keys:
+            p = (counts_p.get(key, 0) + eps) / (sp + eps * k)
+            q = (counts_q.get(key, 0) + eps) / (sq + eps * k)
+            kl += p * np.log(p / q)
+        return float(kl)
+    
+    def _inject_stats(row: Dict[str, object], stats: Dict[str, object], res_usage: Dict[str, object]) -> None:
+        # Expected optional columns: nqubits_t, depth_t, twoq_count, cx_count, cz_count, swap_count, rz_count, rx_count
+        for k in ["nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count"]:
+            if k in fieldnames and stats is not None:
+                row[k] = stats.get(k, "")
+        # Resource usage: rss_mb, gpu_mem_mb, gpu_util
+        if res_usage:
+            for k in ["rss_mb","gpu_mem_mb","gpu_util"]:
+                if k in fieldnames:
+                    row[k] = res_usage.get(k, "")
+
+    # single CPU simulator
+    cpu_sim, cpu_device = create_simulator("cpu", combo["tasks"])
+
+    for i in range(combo["repeats"]):
+        # --- baseline (reference) ---
+        base_t_trans, base_t_sim, base_extra, base_stats, base_res = run_once(
+            sim=cpu_sim,
+            qc=qc,
+            task=combo["tasks"],
+            shots=combo["shots"],
+            measure=True,
+            transpiler="baseline",
+        )
+
+        # --- custom (LQR etc.) ---
+        cust_t_trans, cust_t_sim, cust_extra, cust_stats, cust_res = run_once(
+            sim=cpu_sim,
+            qc=qc,
+            task=combo["tasks"],
+            shots=combo["shots"],
+            measure=True,
+            transpiler="custom",
+        )
+
+        # log baseline row (no correctness — just timing/stats)
+        base_row = _row_base("baseline", cpu_device, i + 1, base_t_trans, base_t_sim, notes="baseline_ref")
+        _inject_stats(base_row, base_stats, base_res)
+        if csv_path:
+            _append_csv(csv_path, _filtered(base_row), fieldnames)
+
+        # log custom row + correctness vs baseline
+        cust_row = _row_base("custom", cpu_device, i + 1, cust_t_trans, cust_t_sim)
+
+        _inject_stats(cust_row, cust_stats, cust_res)
+
+        if combo["tasks"] == "statevector":
+            ref_sv = base_extra.get("statevector")
+            test_sv = cust_extra.get("statevector")
+            ov, l2 = statevector_overlap(ref_sv, test_sv)
+            passed = (ov > 1 - 1e-9)
+
+            print(
+                f"[CPU transpiler cmp] rep {i+1}/{combo['repeats']} | "
+                f"overlap={ov:.12f} l2={l2:.3e} PASS={passed}"
+            )
+
+            note = f"overlap={ov:.12f}; l2={l2:.3e}; pass={passed}"
+            if "overlap" in fieldnames:
+                cust_row["overlap"] = f"{ov:.12f}"
+            if "l2" in fieldnames:
+                cust_row["l2"] = f"{l2:.3e}"
+            if "passed" in fieldnames:
+                cust_row["passed"] = str(passed)
+        else:
+            ref_counts = base_extra.get("counts", {}) or {}
+            test_counts = cust_extra.get("counts", {}) or {}
+            tvd = total_variation_distance(ref_counts, test_counts)
+            kl = _kl_div(ref_counts, test_counts) if "kl_div" in fieldnames else None
+            passed = (tvd < 0.02)
+
+            print(
+                f"[CPU transpiler cmp] rep {i+1}/{combo['repeats']} | "
+                f"TVD={tvd:.6f}"
+                + (f" KL={kl:.6f}" if kl is not None else "")
+                + f" PASS={passed}"
+            )
+
+            note = f"TVD={tvd:.6f}; " + (f"KL={kl:.6f}; " if kl is not None else "") + f"pass={passed}"
+            if "tvd" in fieldnames:
+                cust_row["tvd"] = f"{tvd:.6f}"
+            if kl is not None:
+                cust_row["kl_div"] = f"{kl:.6f}"
+            if "passed" in fieldnames:
+                cust_row["passed"] = str(passed)
+
+        cust_row["notes"] = note
+        if csv_path:
+            _append_csv(csv_path, _filtered(cust_row), fieldnames)
+
+
+
+
 
 def main2():
     # parameters to tweak
@@ -215,12 +357,12 @@ def main2():
         "backend": ["compare"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [15],
-        "depth": [4],
+        "nqubits": [15, 20],
+        "depth": [4, 8],
         "shots": [1024],
         "repeats": [5],
         "seed": [42],
-        "transpiler": ["baseline", "custom"]
+        "transpiler": ["baseline"]
     }
 
 
@@ -288,8 +430,17 @@ def main2():
 
         # prepare backends
         if combo["backend"] == "compare":
-            # compare both cpu and gpu statevector
-            compare_both_backends(combo, qc, fieldnames, args.csv)
+            # # compare both cpu and gpu statevector
+            # compare_both_backends(combo, qc, fieldnames, args.csv)
+
+
+            try:
+                compare_both_backends(combo, qc, fieldnames, args.csv)
+            except RuntimeError as e:
+                print(f"[WARN] {e} - falling back to CPU baseline vs custom transpiler comparison.")
+                compare_transpilers_cpu(combo, qc, fieldnames, args.csv)
+
+
         else:
             # only cpu or gpu+cpu
             single_backend(combo, fieldnames, env, qc, args)

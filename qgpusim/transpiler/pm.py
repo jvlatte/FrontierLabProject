@@ -19,8 +19,8 @@ def make_baseline_pm():
 def make_custom_pm() -> PassManager:
     pm = PassManager()
 
-    # 1) build interaction graph
-    pm.append(QubitInteractionAnalysis())
+    # # 1) build interaction graph
+    # pm.append(QubitInteractionAnalysis())
 
     # 2) do lazy reordering based on that graph
     pm.append(LazyQubitReordering(4))
