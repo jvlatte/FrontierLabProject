@@ -16,14 +16,14 @@ def make_baseline_pm():
 #     return pm
 
 
-def make_custom_pm() -> PassManager:
+def make_custom_pm(num_local_qubits: int) -> PassManager:
     pm = PassManager()
 
     # # 1) build interaction graph
     # pm.append(QubitInteractionAnalysis())
 
     # 2) do lazy reordering based on that graph
-    pm.append(LazyQubitReordering(4))
+    pm.append(LazyQubitReordering(num_local_qubits))
 
     # 3) extra local cleanups
     pm.append(CancelSelfInversePairs())

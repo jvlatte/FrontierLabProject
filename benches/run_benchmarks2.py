@@ -24,7 +24,7 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
     for i in range(combo["repeats"]):
         trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=combo["tasks"], 
                                                                        shots=combo["shots"], measure=True, 
-                                                                       transpiler=combo["transpiler"])
+                                                                       transpiler=combo["transpiler"], num_local_qubits=combo["nL"])
         final_str = (
         f"Run {i+1}/{combo['repeats']} on {combo['backend']} took {trans_elapsed:.4f} sec "
         f"to transpile and {sim_elapsed:.4f} sec to simulate. "
@@ -56,7 +56,8 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
                 "gpu_mem_mb": res_usage.get("gpu_mem_mb",""),
                 "gpu_util": res_usage.get("gpu_util",""),
                 "notes": "",  # e.g., layout/method variants later
-                "transpiler": combo["transpiler"]
+                "transpiler": combo["transpiler"],
+                "nL": combo["nL"]
             }
             _append_csv(args.csv, row, fieldnames)
 
@@ -89,7 +90,8 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             "simulate_s": f"{t_sim:.6f}",
             "total_s": f"{t_trans + t_sim:.6f}",
             "notes": notes,
-            "transpiler": combo["transpiler"]
+            "transpiler": combo["transpiler"],
+            "nL": combo["nL"]
         }
         return row
 
@@ -123,7 +125,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
         # for i in range(args.repeats):
         ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
-            sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True, transpiler=combo["transpiler"])
+            sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True, transpiler=combo["transpiler"], num_local_qubits=combo["nL"])
 
         # extract ref artifact
         ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
@@ -142,7 +144,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
 
     for i in range(combo["repeats"]):
         transpile_s, simulate_s, extra, g_stats, g_res = run_once(sim=gpu_sim, qc=qc,task=combo["tasks"], 
-                                                                  shots=combo["shots"], measure=True, transpiler=combo["transpiler"])
+                                                                  shots=combo["shots"], measure=True, transpiler=combo["transpiler"], num_local_qubits=combo["nL"])
         total_s = transpile_s + simulate_s
 
         note = ""
@@ -218,6 +220,7 @@ def compare_transpilers_cpu(combo: Dict, qc: QuantumCircuit, fieldnames: List[st
             "total_s": f"{t_trans + t_sim:.6f}",
             "notes": notes,
             "transpiler": transpiler,
+            "nL": combo["nL"]
         }
 
     def _kl_div(counts_p: Dict[str, int], counts_q: Dict[str, int], eps: float = 1e-12) -> float:
@@ -255,6 +258,7 @@ def compare_transpilers_cpu(combo: Dict, qc: QuantumCircuit, fieldnames: List[st
             shots=combo["shots"],
             measure=True,
             transpiler="baseline",
+            num_local_qubits=combo["nL"],
         )
 
         # --- custom (LQR etc.) ---
@@ -265,6 +269,7 @@ def compare_transpilers_cpu(combo: Dict, qc: QuantumCircuit, fieldnames: List[st
             shots=combo["shots"],
             measure=True,
             transpiler="custom",
+            num_local_qubits=combo["nL"]
         )
 
         # log baseline row (no correctness — just timing/stats)
@@ -341,29 +346,30 @@ def main2():
     #     "transpiler": ["baseline", "custom"]
     # }
 
-    # params = {
-    #     "backend": ["compare"],
-    #     "tasks": ["statevector"],
-    #     "circuit": ["random"],
-    #     "nqubits": [10, 15, 20, 25],
-    #     "depth": [4],
-    #     "shots": [1024],
-    #     "repeats": [5],
-    #     "seed": [42],
-    #     "transpiler": ["custom", "baseline"]
-    # }
-
     params = {
         "backend": ["compare"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [15, 20],
-        "depth": [4, 8],
+        "nqubits": [10, 15, 20, 25],
+        "depth": [4],
         "shots": [1024],
         "repeats": [5],
         "seed": [42],
-        "transpiler": ["baseline"]
+        "transpiler": ["custom", "baseline"],
+        "nL": [2, 4, 6, 8]
     }
+
+    # params = {
+    #     "backend": ["compare"],
+    #     "tasks": ["statevector"],
+    #     "circuit": ["random"],
+    #     "nqubits": [15, 20],
+    #     "depth": [4, 8],
+    #     "shots": [1024],
+    #     "repeats": [5],
+    #     "seed": [42],
+    #     "transpiler": ["baseline"]
+    # }
 
 
     keys = params.keys()
@@ -410,7 +416,8 @@ def main2():
     # NEW correctness (will be blank if not applicable)
     "overlap","l2","tvd","kl_div","passed",
     "notes",
-    "transpiler"
+    "transpiler",
+    "nL"
     ]
     if args.csv:
         _ensure_csv(args.csv, fieldnames)

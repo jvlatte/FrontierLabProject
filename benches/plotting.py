@@ -335,6 +335,37 @@ def plot_total_memory_vs_n(df, outdir):
         plt.savefig(outdir / f'total_mem_vs_n_{task}.png', dpi=160)
         plt.close()
 
+def plot_rt_vs_nL(df, outdir):
+    has_nL = 'nL' in df.columns
+    if not has_nL:
+        return
+    for task in sorted(df['task'].dropna().unique()):
+        sub = df[df['task'] == task]
+        if sub.empty:
+            continue
+        plt.figure()
+        for nL in sorted(sub['nL'].dropna().unique()):
+            grp = sub[sub['nL'] == nL]
+            if grp.empty:
+                continue
+            med = (
+                grp
+                .groupby('nqubits', as_index=False)['total_s']
+                .median()
+                .sort_values('nqubits')
+            )
+            if med.empty:
+                continue
+            plt.plot(med['nqubits'], med['total_s'],
+                     marker='o', label=f'nL={nL}')
+        plt.xlabel('nqubits')
+        plt.ylabel('total time (s)')
+        plt.title(f'Runtime vs nqubits — {task}')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(outdir / f'rt_vs_n_nL_{task}.png', dpi=160)
+        plt.close()
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -356,6 +387,7 @@ def main():
     plot_correctness(df, outdir)
     plot_memory_vs_n(df, outdir)
     plot_total_memory_vs_n(df, outdir)
+    plot_rt_vs_nL(df, outdir)
 
 if __name__ == '__main__':
     main()

@@ -15,6 +15,7 @@ def build_circuit(circuit: str, n_qubits: int, depth: int, seed: int):
         qc.h(0)
         for i in range(1, n_qubits):
             qc.cx(0, i)
+        return qc
     
     elif circuit == "random":
         rng = random.Random(seed)
