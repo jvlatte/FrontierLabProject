@@ -2,7 +2,18 @@ from collections import defaultdict
 from qiskit.transpiler.basepasses import TransformationPass, AnalysisPass
 from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from typing import List, Set, Dict, Tuple
+from dataclasses import dataclass
 
+# -----------HELPER CLASS-----------------
+
+@dataclass
+class Tile:
+    title_inx: int
+    logical_qubits: List[int]
+    global_to_local_map: Dict[int, int]
+    gates: List[DAGOpNode]
+
+# ------------ PASSES -------------
 
 class CancelSelfInversePairs(TransformationPass):
     """Cancel adjacent pairs of self-inverse gates (e.g., X X, CX CX) on same qubits."""
@@ -391,54 +402,24 @@ class LazyQubitReordering(TransformationPass):
             "avg_Q_L_size": avg_ql_size,
             "max_Q_L_size": max_ql_size,
         }
+    
+    @staticmethod
+    def build_tiling_plan(g_schedule: list[DAGOpNode], M: dict[DAGOpNode, set[int]]) -> List[Tile]:
+        # use g and M to build list of Tiles
+        raw_tiles = LazyQubitReordering.extract_tiles(g_schedule, M)
+        tile_plan = []
 
+        for tile_idx, (ql, gates) in enumerate(raw_tiles):
+            global_to_local = {gq: lq for lq, gq in enumerate(sorted(ql))}
+            tile = Tile(
+                title_inx=tile_idx,
+                logical_qubits=sorted(ql),
+                global_to_local_map=global_to_local,
+                gates=gates
+            )
+            tile_plan.append(tile)
 
-    # # ---------------- Qiskit pass entry point ----------------
-    # def run(self, dag: DAGCircuit) -> DAGCircuit:
-    #     num_qubits = len(dag.qubits)
-    #     Q = set(range(num_qubits))
-
-    #     # map DAG qubit -> int index
-    #     qindex = {q: i for i, q in enumerate(dag.qubits)}
-
-    #     # Get gates in topological order
-    #     C_list: List[DAGOpNode] = list(dag.topological_op_nodes())
-
-    #     # ---- manual depth computation (no node_depth / level needed) ----
-    #     # last_depth[i] = depth of the last gate that used qubit i
-    #     last_depth = {i: -1 for i in range(num_qubits)}
-    #     node_depth: Dict[DAGOpNode, int] = {}
-
-    #     for node in C_list:
-    #         qubit_indices = [qindex[q] for q in node.qargs]
-
-    #         if qubit_indices:
-    #             d = max(last_depth[i] for i in qubit_indices) + 1
-    #         else:
-    #             # gate with no qubits (rare), put at depth 0
-    #             d = 0
-
-    #         node_depth[node] = d
-    #         for i in qubit_indices:
-    #             last_depth[i] = d
-
-    #     # Sort gates by computed depth (Algorithm 1 assumes this)
-    #     C_list.sort(key=lambda n: node_depth[n])
-    #     # ----------------------------------------------------------------
-
-    #     # T_map: node -> set[int] (global qubit indices)
-    #     T_map: Dict[DAGOpNode, Set[int]] = {
-    #         node: {qindex[q] for q in node.qargs} for node in C_list
-    #     }
-
-    #     g_schedule, M = self.flat_tiling(Q, C_list, T_map, self.nL)
-
-    #     # For now, just store results; you can build a new DAG later.
-    #     self.property_set["flat_tiling_schedule"] = g_schedule
-    #     self.property_set["flat_tiling_mapping"] = M
-
-    #     return dag
-
+        return tile_plan
 
     def run(self, dag: DAGCircuit) -> DAGCircuit:
         num_qubits = len(dag.qubits)
@@ -478,6 +459,9 @@ class LazyQubitReordering(TransformationPass):
         # Keep metadata for later GPU work
         self.property_set["flat_tiling_schedule"] = g_schedule
         self.property_set["flat_tiling_mapping"] = M
+
+        tiling_plan = self.build_tiling_plan(g_schedule, M)
+        self.property_set["flat_tiling_plan"] = tiling_plan
 
         # 6) Create a new empty DAG with same structure
         try:

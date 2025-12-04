@@ -28,7 +28,7 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
             tqc = transpile(qc_sv, sim)
 
             # 2) extra passes on top of that
-            pm = make_custom_pm(num_local_qubits)
+            pm, lqr_pass = make_custom_pm(num_local_qubits)
             tqc = pm.run(tqc)
 
             # # code before adding on to baseline transpiler
@@ -40,7 +40,7 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
             tqc = transpile(qc_sv, sim)
     else:
         if transpiler == "custom":
-            pm = make_custom_pm(num_local_qubits)
+            pm, lqr_pass = make_custom_pm(num_local_qubits)
             tqc = pm.run(qc_run)
         else:
             tqc = transpile(qc_run, sim)

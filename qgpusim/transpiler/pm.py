@@ -17,16 +17,15 @@ def make_baseline_pm():
 
 
 def make_custom_pm(num_local_qubits: int) -> PassManager:
+    lqr_pass = LazyQubitReordering(num_local_qubits)
     pm = PassManager()
 
     # # 1) build interaction graph
     # pm.append(QubitInteractionAnalysis())
 
     # 2) do lazy reordering based on that graph
-    pm.append(LazyQubitReordering(num_local_qubits))
-
+    pm.append(lqr_pass)
     # 3) extra local cleanups
     pm.append(CancelSelfInversePairs())
 
-    return pm
-
+    return pm, lqr_pass
