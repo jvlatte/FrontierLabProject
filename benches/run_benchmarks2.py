@@ -18,13 +18,19 @@ from qgpusim.transpiler.pm import make_baseline_pm, make_custom_pm
 
 
 def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, args):
-    # only cpu or gpu+cpu
-    sim, device_used = create_simulator(combo["backend"], combo["tasks"])
+    # try gpu custom backend
+    if combo["gpu_backend"] == "custom":
+        # TODO: ADD TO HERE
+        pass
+    else:
+        # only cpu or gpu+cpu with aer backends
+        sim, device_used = create_simulator(combo["backend"], combo["tasks"])
     #device_used = "GPU" if (args.backend == "gpu") else "CPU"
     for i in range(combo["repeats"]):
         trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=combo["tasks"], 
                                                                        shots=combo["shots"], measure=True, 
-                                                                       transpiler=combo["transpiler"], num_local_qubits=combo["nL"])
+                                                                       transpiler=combo["transpiler"], num_local_qubits=combo["nL"],
+                                                                       gpu_backend=combo["gpu_backend"])
         final_str = (
         f"Run {i+1}/{combo['repeats']} on {combo['backend']} took {trans_elapsed:.4f} sec "
         f"to transpile and {sim_elapsed:.4f} sec to simulate. "
@@ -57,7 +63,8 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
                 "gpu_util": res_usage.get("gpu_util",""),
                 "notes": "",  # e.g., layout/method variants later
                 "transpiler": combo["transpiler"],
-                "nL": combo["nL"]
+                "nL": combo["nL"],
+                "gpu_backend": combo["gpu_backend"]
             }
             _append_csv(args.csv, row, fieldnames)
 
@@ -91,7 +98,8 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             "total_s": f"{t_trans + t_sim:.6f}",
             "notes": notes,
             "transpiler": combo["transpiler"],
-            "nL": combo["nL"]
+            "nL": combo["nL"],
+            "gpu_backend": combo["gpu_backend"]
         }
         return row
 
@@ -125,7 +133,9 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
         # for i in range(args.repeats):
         ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
-            sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True, transpiler=combo["transpiler"], num_local_qubits=combo["nL"])
+            sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True,
+            transpiler=combo["transpiler"], num_local_qubits=combo["nL"], gpu_backend=combo["gpu_backend"]
+            )
 
         # extract ref artifact
         ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
@@ -138,13 +148,19 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             _append_csv(csv_path, _filtered(cpu_row), fieldnames)
 
     # gpu part now; keep running until repeats end
-    gpu_sim, gpu_device = create_simulator("gpu", combo["tasks"])
+    if combo["gpu_backend"] == "custom":
+        # TODO: ADD TO HERE
+        pass
+    else:
+        # aer gpu
+        gpu_sim, gpu_device = create_simulator("gpu", combo["tasks"])
     if "GPU" not in gpu_device:
         raise RuntimeError("GPU not present/available")
 
     for i in range(combo["repeats"]):
         transpile_s, simulate_s, extra, g_stats, g_res = run_once(sim=gpu_sim, qc=qc,task=combo["tasks"], 
-                                                                  shots=combo["shots"], measure=True, transpiler=combo["transpiler"], num_local_qubits=combo["nL"])
+                                                                  shots=combo["shots"], measure=True, transpiler=combo["transpiler"], 
+                                                                  num_local_qubits=combo["nL"], gpu_backend=combo["gpu_backend"])
         total_s = transpile_s + simulate_s
 
         note = ""
@@ -350,13 +366,14 @@ def main2():
         "backend": ["compare"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [10, 15, 20, 25],
+        "nqubits": [15],
         "depth": [4],
         "shots": [1024],
         "repeats": [5],
         "seed": [42],
         "transpiler": ["custom", "baseline"],
-        "nL": [2, 4, 6, 8]
+        "nL": [4],
+        "gpu_backend": ["aer", "custom"]
     }
 
     # params = {
@@ -415,9 +432,7 @@ def main2():
     "rss_mb","gpu_mem_mb","gpu_util",
     # NEW correctness (will be blank if not applicable)
     "overlap","l2","tvd","kl_div","passed",
-    "notes",
-    "transpiler",
-    "nL"
+    "notes", "transpiler", "nL", "gpu_backend"
     ]
     if args.csv:
         _ensure_csv(args.csv, fieldnames)
@@ -439,14 +454,11 @@ def main2():
         if combo["backend"] == "compare":
             # # compare both cpu and gpu statevector
             # compare_both_backends(combo, qc, fieldnames, args.csv)
-
-
             try:
                 compare_both_backends(combo, qc, fieldnames, args.csv)
             except RuntimeError as e:
                 print(f"[WARN] {e} - falling back to CPU baseline vs custom transpiler comparison.")
                 compare_transpilers_cpu(combo, qc, fieldnames, args.csv)
-
 
         else:
             # only cpu or gpu+cpu
