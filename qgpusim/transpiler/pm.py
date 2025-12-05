@@ -24,8 +24,9 @@ def make_custom_pm(num_local_qubits: int) -> PassManager:
     # pm.append(QubitInteractionAnalysis())
 
     # 2) do lazy reordering based on that graph
-    pm.append(lqr_pass)
+    # pm.append(lqr_pass)
     # 3) extra local cleanups
     pm.append(CancelSelfInversePairs())
+    pm.append(lqr_pass)
 
     return pm, lqr_pass

@@ -134,7 +134,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         # for i in range(args.repeats):
         ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
             sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True,
-            transpiler=combo["transpiler"], num_local_qubits=combo["nL"], gpu_backend=combo["gpu_backend"]
+            transpiler=combo["transpiler"], num_local_qubits=combo["nL"], gpu_backend="aer"
             )
 
         # extract ref artifact
@@ -148,12 +148,12 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             _append_csv(csv_path, _filtered(cpu_row), fieldnames)
 
     # gpu part now; keep running until repeats end
-    if combo["gpu_backend"] == "custom":
-        # TODO: ADD TO HERE
-        pass
-    else:
-        # aer gpu
-        gpu_sim, gpu_device = create_simulator("gpu", combo["tasks"])
+    # if combo["gpu_backend"] == "custom":
+    #     # TODO: ADD TO HERE
+    #     pass
+    # else:
+    #     # aer gpu
+    gpu_sim, gpu_device = create_simulator("gpu", combo["tasks"])
     if "GPU" not in gpu_device:
         raise RuntimeError("GPU not present/available")
 
@@ -371,7 +371,7 @@ def main2():
         "shots": [1024],
         "repeats": [5],
         "seed": [42],
-        "transpiler": ["custom", "baseline"],
+        "transpiler": ["baseline", "custom"],
         "nL": [4],
         "gpu_backend": ["aer", "custom"]
     }

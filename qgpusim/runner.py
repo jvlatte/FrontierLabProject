@@ -32,7 +32,7 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
             # 2) extra passes on top of that
             pm, lqr_pass = make_custom_pm(num_local_qubits)
             tqc = pm.run(tqc)
-
+            tiling_plan = lqr_pass.property_set.get("flat_tiling_plan", None)
             # # code before adding on to baseline transpiler
             # pm = make_custom_pm()
             # tqc = pm.run(qc_sv)
@@ -49,18 +49,30 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
     transpile_s = time.perf_counter() - transpile_t0
 
     # (2) simulation time
-    if gpu_backend == "aer":
+    if transpiler == "baseline":
+        # only use aer gpu backend for baseline transpiler
         # original behavior
         simulate_t0 = time.perf_counter()
         result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
         simulate_s = time.perf_counter() - simulate_t0
     else:
-        # try custom gpu
-        # TODO: implement this
-        simulate_t0 = time.perf_
-        run_custom_backend()
-        result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
-        simulate_s = time.perf_counter() - simulate_t0
+        # custom transpiler: can use aer or custom gpu backend
+        if gpu_backend == "aer":
+            # aer gpu backend
+            simulate_t0 = time.perf_counter()
+            result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
+            simulate_s = time.perf_counter() - simulate_t0
+        else:
+            # try custom gpu
+            # TODO: implement this
+            if tiling_plan is None:
+                raise ValueError("gpu_backend='custom' requires transpiler='custom' and tiling_plan")
+
+            simulate_t0 = time.perf_counter()
+            psi = run_custom_backend(tqc, tiling_plan, task, shots)
+            # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
+            simulate_s = time.perf_counter() - simulate_t0
+            result = None  # placeholder
 
 
     # ----------------------------- PART THAT WAS COMMENTED OUT TO TRY NEW THINGS ----------------------------------------
@@ -72,17 +84,23 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
     # ----------------------------- PART THAT WAS COMMENTED OUT TO TRY NEW THINGS ----------------------------------------
 
     # get the results
-    if task == "statevector":
-        vec = result.get_statevector(tqc)
-        try:
-            from qiskit.quantum_info import Statevector
-            sv = Statevector(vec)
-            extra = {"statevector": [complex(a) for a in sv.data]}
-        except Exception:
-            extra = {"statevector": None}
+    if result is None:
+        extra = {}
+        if task == "statevector":
+            if gpu_backend == "custom":
+                extra["statevector"] = [complex(a) for a in psi]
     else:
-        counts = result.get_counts(tqc)
-        extra = {"counts": counts}
+        if task == "statevector":
+            vec = result.get_statevector(tqc)
+            try:
+                from qiskit.quantum_info import Statevector
+                sv = Statevector(vec)
+                extra = {"statevector": [complex(a) for a in sv.data]}
+            except Exception:
+                extra = {"statevector": None}
+        else:
+            counts = result.get_counts(tqc)
+            extra = {"counts": counts}
 
     # NEW: collect stats and resources
     stats = _tqc_stats(tqc)
