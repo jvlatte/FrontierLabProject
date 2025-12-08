@@ -69,10 +69,11 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
                 raise ValueError("gpu_backend='custom' requires transpiler='custom' and tiling_plan")
 
             simulate_t0 = time.perf_counter()
-            psi = run_custom_backend(tqc, tiling_plan, task, shots)
-            # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
+            # psi = run_custom_backend(tqc, tiling_plan, task, shots)
+            # # result = sim.run(tqc, shots=shots if task == "samplin;g" else None).result()
+            # result = None  # placeholder
+            result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
             simulate_s = time.perf_counter() - simulate_t0
-            result = None  # placeholder
 
 
     # ----------------------------- PART THAT WAS COMMENTED OUT TO TRY NEW THINGS ----------------------------------------
