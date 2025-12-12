@@ -366,13 +366,13 @@ def main2():
         "backend": ["compare"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [10, 15, 20, 25],
-        "depth": [4],
+        "nqubits": [15, 20, 25],
+        "depth": [8, 16],
         "shots": [1024],
         "repeats": [5],
         "seed": [42],
         "transpiler": ["baseline", "custom"],
-        "nL": [4, 6, 8],
+        "nL": [4, 6],
         "gpu_backend": ["aer", "custom"]
     }
 

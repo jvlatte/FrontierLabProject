@@ -2,7 +2,10 @@ from qiskit import QuantumCircuit
 from qgpusim.transpiler.passes import Tile
 from typing import List
 import numpy as np
+import cupy as cp
 
+
+# cpu functions
 
 def apply_1q_gate(
     psi: np.ndarray,
@@ -63,12 +66,80 @@ def apply_2q_gate(
         psi[i00], psi[i01], psi[i10], psi[i11] = v_new
 
 
+# gpu functions
+
+def apply_1q_gate_gpu(
+    psi: cp.ndarray,
+    U: cp.ndarray,
+    q: int,
+    num_qubits: int,
+):
+    dim = psi.shape[0]
+    assert dim == (1 << num_qubits)
+    mask = 1 << q
+
+    # indices 0...2^n - 1 on gpu
+    idx = cp.arange(dim, dtype=cp.int64)
+
+    lower_mask = (idx & mask) == 0
+    i = idx[lower_mask]
+    j = i | mask
+
+    a0 = psi[i]
+    a1 = psi[j]
+
+    psi[i] = U[0, 0] * a0 + U[0, 1] * a1
+    psi[j] = U[1, 0] * a0 + U[1, 1] * a1
+
+def apply_2q_gate_gpu(
+    psi: cp.ndarray,
+    U: cp.ndarray,
+    q0: int,
+    q1: int,
+    num_qubits: int,
+): 
+    dim = psi.shape[0]
+    assert dim == (1 << num_qubits)
+    if q0 == q1:
+        raise ValueError("q0 and q1 must be different")
+
+    low, high = sorted((q0, q1))
+    mask_low = 1 << low
+    mask_high = 1 << high
+
+    idx = cp.arange(dim, dtype=cp.int64)
+    base_mask = ((idx & mask_low) == 0) & ((idx & mask_high) == 0)
+    base = idx[base_mask]
+
+    if base.size == 0:
+        return
+    
+    i00 = base
+    i01 = base | mask_low
+    i10 = base | mask_high
+    i11 = base | mask_low | mask_high
+
+    v00 = psi[i00]
+    v01 = psi[i01]
+    v10 = psi[i10]
+    v11 = psi[i11]
+
+    vecs = cp.stack([v00, v01, v10, v11], axis=0)
+    new_vecs = U @ vecs
+
+    psi[i00] = new_vecs[0]
+    psi[i01] = new_vecs[1]
+    psi[i10] = new_vecs[2]
+    psi[i11] = new_vecs[3]
+
 def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None):
-    print("\n\nRunning custom GPU backend (not implemented yet)\n\n")
+    print("\n\nRunning custom GPU backend\n\n")
     num_qubits = qc.num_qubits
     dim = 1 << num_qubits
-    psi = np.zeros(dim, dtype=np.complex128)
-    psi[0] = 1.0
+    # psi = np.zeros(dim, dtype=np.complex128)
+    # psi[0] = 1.0
+    psi_gpu = cp.zeros(dim, dtype=cp.complex128)
+    psi_gpu[0] = 1.0 + 0.0j
 
     print("\n=== CUSTOM TILE BACKEND (CPU stub) ===")
     print(f"  task: {task}, shots: {shots}")
@@ -76,10 +147,10 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
     print(f"  num_tiles: {len(tile_plan)}")
 
     for tile in tile_plan:
-        print(f"\n  Tile {tile.tile_idx}:")
-        print(f"    logical_qubits (global): {tile.logical_qubits}")
-        print(f"    global_to_local: {tile.global_to_local_map}")
-        print(f"    num_gates: {len(tile.gates)}")
+        # print(f"\n  Tile {tile.tile_idx}:")
+        # print(f"    logical_qubits (global): {tile.logical_qubits}")
+        # print(f"    global_to_local: {tile.global_to_local_map}")
+        # print(f"    num_gates: {len(tile.gates)}")
 
         for node in tile.gates:
             op = node.op
@@ -90,23 +161,26 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                 continue
 
             try:
-                U = op.to_matrix()
+                U_cpu = op.to_matrix()
             except Exception:
                 print(f"      [skip] op {op.name} has no matrix representation")
                 continue
 
+            U_gpu = cp.asarray(U_cpu, dtype=cp.complex128)
+
             qargs = node.qargs
             global_qubits = [qc.find_bit(q).index for q in qargs]
 
-            if U.shape == (2, 2) and len(global_qubits) == 1:
-                apply_1q_gate(psi, U, global_qubits[0], num_qubits)
-            elif U.shape == (4, 4) and len(global_qubits) == 2:
-                apply_2q_gate(psi, U, global_qubits[0], global_qubits[1], num_qubits)
+            if U_gpu.shape == (2, 2) and len(global_qubits) == 1:
+                apply_1q_gate_gpu(psi_gpu, U_gpu, global_qubits[0], num_qubits)
+            elif U_gpu.shape == (4, 4) and len(global_qubits) == 2:
+                apply_2q_gate_gpu(psi_gpu, U_gpu, global_qubits[0], global_qubits[1], num_qubits)
             else:
                 print(
                     f"      [skip] unsupported gate {op.name} "
-                    f"shape={U.shape} on {len(global_qubits)} qubits"
+                    f"shape={U_gpu.shape} on {len(global_qubits)} qubits"
                 )
                 continue
+    psi_cpu = cp.asnumpy(psi_gpu)
 
-    return psi
+    return psi_cpu
