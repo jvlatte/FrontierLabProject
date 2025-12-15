@@ -6,6 +6,66 @@ import argparse
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
+def plot_transpile_and_sim_vs_n(df, outdir):
+    required = {'nqubits', 'backend', 'task', 'transpile_s', 'simulate_s', 'transpiler'}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"Missing required columns: {sorted(missing)}")
+
+    combos = [
+        ('cpu', 'baseline'),
+        ('cpu', 'custom'),
+        ('gpu', 'baseline'),
+        ('gpu', 'custom'),
+    ]
+
+    for task in sorted(df['task'].dropna().unique()):
+        sub = df[df['task'] == task]
+        if sub.empty:
+            continue
+
+        # median aggregation
+        med = (
+            sub.groupby(['backend', 'transpiler', 'nqubits'], as_index=False)[['transpile_s', 'simulate_s']]
+               .median()
+               .sort_values('nqubits')
+        )
+        if med.empty:
+            continue
+
+        # transpilation time plot
+        plt.figure()
+        for backend, transp in combos:
+            line = med[(med['backend'] == backend) & (med['transpiler'] == transp)]
+            if line.empty:
+                continue
+            plt.plot(line['nqubits'], line['transpile_s'], marker='o',
+                     label=f"{backend} + {transp}")
+        plt.xlabel('nqubits')
+        plt.ylabel('transpile time (s)')
+        plt.title(f'Transpile time vs nqubits — {task}')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(outdir / f'transpile_vs_n_{task}.png', dpi=160)
+        plt.close()
+
+        # simulation time plot
+        plt.figure()
+        for backend, transp in combos:
+            line = med[(med['backend'] == backend) & (med['transpiler'] == transp)]
+            if line.empty:
+                continue
+            plt.plot(line['nqubits'], line['simulate_s'], marker='o',
+                     label=f"{backend} + {transp}")
+        plt.xlabel('nqubits')
+        plt.ylabel('simulate time (s)')
+        plt.title(f'Simulate time vs nqubits — {task}')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(outdir / f'simulate_vs_n_{task}.png', dpi=160)
+        plt.close()
+
+
 def plot_runtime_vs_n(df, outdir):
     has_transpiler = 'transpiler' in df.columns
 
@@ -14,18 +74,6 @@ def plot_runtime_vs_n(df, outdir):
         if sub.empty:
             continue
         plt.figure()
-
-        # cpu
-        # cpu_sub = sub[sub['backend'] == 'cpu']
-        # if not cpu_sub.empty:
-        #     cpu_med = (
-        #         cpu_sub
-        #         .groupby('nqubits', as_index=False)['total_s']
-        #         .median()
-        #         .sort_values('nqubits')
-        #     )
-        #     plt.plot(cpu_med['nqubits'], cpu_med['total_s'],
-        #              marker='o', label='cpu')
             
         cpu_sub = sub[sub['backend'] == 'cpu']
         if not cpu_sub.empty:
@@ -57,7 +105,6 @@ def plot_runtime_vs_n(df, outdir):
                     plt.plot(cpu_med['nqubits'], cpu_med['total_s'],
                              marker='o', label='cpu')
 
-
         # gpu combo
         gpu_sub = sub[sub['backend'] == 'gpu']
         if not gpu_sub.empty:
@@ -83,20 +130,6 @@ def plot_runtime_vs_n(df, outdir):
         plt.savefig(outdir / f'rt_vs_n_{task}.png', dpi=160)
         plt.close()
 
-
-# def plot_transpile_sim_breakdown(df, outdir):
-#     sub = df.groupby(['backend','task'], as_index=False)[['transpile_s','simulate_s']].median()
-#     plt.figure()
-#     x = np.arange(len(sub))
-#     plt.bar(x, sub['transpile_s'], label='transpile')
-#     plt.bar(x, sub['simulate_s'], bottom=sub['transpile_s'], label='simulate')
-#     plt.xticks(x, [f"{b}\n{t}" for b,t in zip(sub['backend'], sub['task'])])
-#     plt.ylabel('time (s)')
-#     plt.title('Median time breakdown')
-#     plt.legend()
-#     plt.tight_layout()
-#     plt.savefig(outdir / 'breakdown.png', dpi=160)
-#     plt.close()
 
 def plot_transpile_sim_breakdown(df, outdir):
     sub = df.copy()
@@ -388,6 +421,7 @@ def main():
     plot_memory_vs_n(df, outdir)
     plot_total_memory_vs_n(df, outdir)
     plot_rt_vs_nL(df, outdir)
+    plot_transpile_and_sim_vs_n(df, outdir)
 
 if __name__ == '__main__':
     main()
