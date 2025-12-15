@@ -4,6 +4,26 @@ from typing import List
 import numpy as np
 import cupy as cp
 
+# cache dict
+GATE_CACHE = {} # (name, parameters) -> cp matrix
+
+# gate cache helper
+def get_gate_matrix(op):
+    try:
+        params = tuple(float(p) for p in getattr(op, 'params', []))
+    except TypeError:
+        params = None
+    
+    key = (op.name, params)
+
+    if key in GATE_CACHE:
+        return GATE_CACHE[key]
+
+    # compute and cache
+    U_cpu = op.to_matrix()
+    U_gpu = cp.asarray(U_cpu, dtype=cp.complex128)
+    GATE_CACHE[key] = U_gpu
+    return U_gpu
 
 # cpu functions
 
@@ -73,13 +93,14 @@ def apply_1q_gate_gpu(
     U: cp.ndarray,
     q: int,
     num_qubits: int,
+    idx: cp.ndarray = None
 ):
     dim = psi.shape[0]
     assert dim == (1 << num_qubits)
     mask = 1 << q
 
-    # indices 0...2^n - 1 on gpu
-    idx = cp.arange(dim, dtype=cp.int64)
+    # # indices 0...2^n - 1 on gpu
+    # idx = cp.arange(dim, dtype=cp.int64)
 
     lower_mask = (idx & mask) == 0
     i = idx[lower_mask]
@@ -97,6 +118,7 @@ def apply_2q_gate_gpu(
     q0: int,
     q1: int,
     num_qubits: int,
+    idx: cp.ndarray = None
 ): 
     dim = psi.shape[0]
     assert dim == (1 << num_qubits)
@@ -107,7 +129,7 @@ def apply_2q_gate_gpu(
     mask_low = 1 << low
     mask_high = 1 << high
 
-    idx = cp.arange(dim, dtype=cp.int64)
+    # idx = cp.arange(dim, dtype=cp.int64)
     base_mask = ((idx & mask_low) == 0) & ((idx & mask_high) == 0)
     base = idx[base_mask]
 
@@ -141,18 +163,15 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
     psi_gpu = cp.zeros(dim, dtype=cp.complex128)
     psi_gpu[0] = 1.0 + 0.0j
 
+    idx = cp.arange(dim, dtype=cp.int64)
+
     print("\n=== CUSTOM TILE BACKEND (CPU stub) ===")
     print(f"  task: {task}, shots: {shots}")
     print(f"  num_qubits: {num_qubits}")
     print(f"  num_tiles: {len(tile_plan)}")
 
     for tile in tile_plan:
-        # print(f"\n  Tile {tile.tile_idx}:")
-        # print(f"    logical_qubits (global): {tile.logical_qubits}")
-        # print(f"    global_to_local: {tile.global_to_local_map}")
-        # print(f"    num_gates: {len(tile.gates)}")
-
-        for node in tile.gates:
+       for node in tile.gates:
             op = node.op
 
             # Skip non-unitary / snapshot ops like SaveStatevector, barriers, etc.
@@ -161,20 +180,21 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                 continue
 
             try:
-                U_cpu = op.to_matrix()
+                # U_cpu = op.to_matrix()
+                U_gpu = get_gate_matrix(op)
             except Exception:
                 print(f"      [skip] op {op.name} has no matrix representation")
                 continue
 
-            U_gpu = cp.asarray(U_cpu, dtype=cp.complex128)
+            # U_gpu = cp.asarray(U_cpu, dtype=cp.complex128)
 
             qargs = node.qargs
             global_qubits = [qc.find_bit(q).index for q in qargs]
 
             if U_gpu.shape == (2, 2) and len(global_qubits) == 1:
-                apply_1q_gate_gpu(psi_gpu, U_gpu, global_qubits[0], num_qubits)
+                apply_1q_gate_gpu(psi_gpu, U_gpu, global_qubits[0], num_qubits, idx)
             elif U_gpu.shape == (4, 4) and len(global_qubits) == 2:
-                apply_2q_gate_gpu(psi_gpu, U_gpu, global_qubits[0], global_qubits[1], num_qubits)
+                apply_2q_gate_gpu(psi_gpu, U_gpu, global_qubits[0], global_qubits[1], num_qubits, idx)
             else:
                 print(
                     f"      [skip] unsupported gate {op.name} "
