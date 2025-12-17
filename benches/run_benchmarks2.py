@@ -365,9 +365,9 @@ def main2():
     params = {
         "backend": ["compare"],
         "tasks": ["statevector"],
-        "circuit": ["random"],
+        "circuit": ["ghz", "qft"],
         "nqubits": [15, 20, 25],
-        "depth": [8, 16],
+        "depth": [8],
         "shots": [1024],
         "repeats": [5],
         "seed": [42],

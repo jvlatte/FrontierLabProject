@@ -1,0 +1,8 @@
+{
+  "source_dir": "/export/home/j-valete/projects/FrontierLabProject/qgpusim/backends/custom/native",
+  "build_dir": "/export/home/j-valete/projects/FrontierLabProject/qgpusim/backends/custom/native/build",
+  "cmake_path": "/usr/bin/cmake3",
+  "skbuild_path": "/tmp/pip-build-env-oq1v5zp7/overlay/lib/python3.11/site-packages/scikit_build_core",
+  "skbuild_version": "0.11.6",
+  "python_executable": "/home/j-valete/miniconda3/envs/qgpu/bin/python"
+}

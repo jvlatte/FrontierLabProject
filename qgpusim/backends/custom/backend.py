@@ -142,6 +142,13 @@ apply_2q_gate_kernel = cp.RawKernel(
     "apply_2q_gate_kernel",
 )
 
+try:
+
+    from .native import qgpusim_cuda
+    USE_NATIVE = True
+except Exception:
+    USE_NATIVE = False
+
 
 # gate cache helper
 def get_gate_matrix(op):
@@ -284,6 +291,35 @@ def apply_2q_gate_gpu(
 def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None):
     print("\n\nRunning custom GPU backend\n\n")
     num_qubits = qc.num_qubits
+
+    if USE_NATIVE:
+        print("\n\nUsing native CUDA backend\n\n")
+        sv = qgpusim_cuda.Statevector(num_qubits)
+
+        for tile in tile_plan:
+            for node in tile.gates:
+                op = node.op
+
+                if not hasattr(op, "to_matrix"):
+                    continue
+
+                try:
+                    U = op.to_matrix()  # numpy array
+                except Exception:
+                    continue
+
+                qargs = node.qargs
+                global_qubits = [qc.find_bit(q).index for q in qargs]
+
+                if U.shape == (2, 2) and len(global_qubits) == 1:
+                    sv.apply_1q(global_qubits[0], U)
+                elif U.shape == (4, 4) and len(global_qubits) == 2:
+                    sv.apply_2q(global_qubits[0], global_qubits[1], U)
+                else:
+                    continue
+
+        return sv.to_numpy()
+
     dim = 1 << num_qubits
     # psi = np.zeros(dim, dtype=np.complex128)
     # psi[0] = 1.0
