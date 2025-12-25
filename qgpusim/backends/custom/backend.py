@@ -162,7 +162,7 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                     sv.apply_2q(global_qubits[0], global_qubits[1], U)
                 else:
                     continue
-
+        print("  Finished circuit execution using native CUDA module.\n")
         return sv.to_numpy()
 
     # Fallback: Use CuPy arrays with native kernel functions (if available) or pure CuPy
