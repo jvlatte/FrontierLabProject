@@ -366,7 +366,7 @@ def main2():
         "repeats": [5],
         "seed": [42],
         "transpiler": ["baseline", "custom"],
-        "nL": [4, 6],
+        "nL": [6],
         "gpu_backend": ["aer", "custom"]
     }
 

@@ -2,14 +2,21 @@
 #include <cstdio>
 
 // ============================================================================
-// 1-Qubit Gate Kernel
+// 1-Qubit Gate Kernel (optimized with shared memory)
 // ============================================================================
 __global__ void apply_1q_gate_kernel(
-    cuDoubleComplex* psi,
-    const cuDoubleComplex* U,
+    cuDoubleComplex* __restrict__ psi,
+    const cuDoubleComplex* __restrict__ U,
     const long long n,
     const int q
 ) {
+    // Load gate matrix into shared memory (only 4 elements)
+    __shared__ cuDoubleComplex U_shared[4];
+    if (threadIdx.x < 4) {
+        U_shared[threadIdx.x] = U[threadIdx.x];
+    }
+    __syncthreads();
+
     unsigned long long dim = 1ULL << n;
     unsigned long long stride = 1ULL << q;
     unsigned long long num_pairs = dim >> 1;
@@ -27,29 +34,32 @@ __global__ void apply_1q_gate_kernel(
     cuDoubleComplex a0 = psi[i0];
     cuDoubleComplex a1 = psi[i1];
 
-    cuDoubleComplex u00 = U[0];
-    cuDoubleComplex u01 = U[1];
-    cuDoubleComplex u10 = U[2];
-    cuDoubleComplex u11 = U[3];
-
+    // Use shared memory for gate matrix
     cuDoubleComplex out0, out1;
-    out0 = cuCadd(cuCmul(u00, a0), cuCmul(u01, a1));
-    out1 = cuCadd(cuCmul(u10, a0), cuCmul(u11, a1));
+    out0 = cuCadd(cuCmul(U_shared[0], a0), cuCmul(U_shared[1], a1));
+    out1 = cuCadd(cuCmul(U_shared[2], a0), cuCmul(U_shared[3], a1));
 
     psi[i0] = out0;
     psi[i1] = out1;
 }
 
 // ============================================================================
-// 2-Qubit Gate Kernel
+// 2-Qubit Gate Kernel (optimized with shared memory)
 // ============================================================================
 __global__ void apply_2q_gate_kernel(
-    cuDoubleComplex* psi,
-    const cuDoubleComplex* U,
+    cuDoubleComplex* __restrict__ psi,
+    const cuDoubleComplex* __restrict__ U,
     const long long n,
     const int q0,
     const int q1
 ) {
+    // Load gate matrix into shared memory (16 elements)
+    __shared__ cuDoubleComplex U_shared[16];
+    if (threadIdx.x < 16) {
+        U_shared[threadIdx.x] = U[threadIdx.x];
+    }
+    __syncthreads();
+
     // Ensure low < high
     int low  = q0 < q1 ? q0 : q1;
     int high = q0 < q1 ? q1 : q0;
@@ -86,29 +96,20 @@ __global__ void apply_2q_gate_kernel(
     cuDoubleComplex a10 = psi[i10];
     cuDoubleComplex a11 = psi[i11];
 
-    // U is 4x4 row-major
-    cuDoubleComplex U00 = U[0];   cuDoubleComplex U01 = U[1];
-    cuDoubleComplex U02 = U[2];   cuDoubleComplex U03 = U[3];
-    cuDoubleComplex U10 = U[4];   cuDoubleComplex U11 = U[5];
-    cuDoubleComplex U12 = U[6];   cuDoubleComplex U13 = U[7];
-    cuDoubleComplex U20 = U[8];   cuDoubleComplex U21 = U[9];
-    cuDoubleComplex U22 = U[10];  cuDoubleComplex U23 = U[11];
-    cuDoubleComplex U30 = U[12];  cuDoubleComplex U31 = U[13];
-    cuDoubleComplex U32 = U[14];  cuDoubleComplex U33 = U[15];
-
+    // Compute outputs using shared memory gate matrix
     cuDoubleComplex out0, out1, out2, out3;
 
-    out0 = cuCadd(cuCadd(cuCmul(U00, a00), cuCmul(U01, a01)),
-                  cuCadd(cuCmul(U02, a10), cuCmul(U03, a11)));
+    out0 = cuCadd(cuCadd(cuCmul(U_shared[0], a00), cuCmul(U_shared[1], a01)),
+                  cuCadd(cuCmul(U_shared[2], a10), cuCmul(U_shared[3], a11)));
 
-    out1 = cuCadd(cuCadd(cuCmul(U10, a00), cuCmul(U11, a01)),
-                  cuCadd(cuCmul(U12, a10), cuCmul(U13, a11)));
+    out1 = cuCadd(cuCadd(cuCmul(U_shared[4], a00), cuCmul(U_shared[5], a01)),
+                  cuCadd(cuCmul(U_shared[6], a10), cuCmul(U_shared[7], a11)));
 
-    out2 = cuCadd(cuCadd(cuCmul(U20, a00), cuCmul(U21, a01)),
-                  cuCadd(cuCmul(U22, a10), cuCmul(U23, a11)));
+    out2 = cuCadd(cuCadd(cuCmul(U_shared[8], a00), cuCmul(U_shared[9], a01)),
+                  cuCadd(cuCmul(U_shared[10], a10), cuCmul(U_shared[11], a11)));
 
-    out3 = cuCadd(cuCadd(cuCmul(U30, a00), cuCmul(U31, a01)),
-                  cuCadd(cuCmul(U32, a10), cuCmul(U33, a11)));
+    out3 = cuCadd(cuCadd(cuCmul(U_shared[12], a00), cuCmul(U_shared[13], a01)),
+                  cuCadd(cuCmul(U_shared[14], a10), cuCmul(U_shared[15], a11)));
 
     psi[i00] = out0;
     psi[i01] = out1;

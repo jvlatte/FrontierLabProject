@@ -1,6 +1,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/numpy.h>
 #include <pybind11/complex.h>
+#include <pybind11/stl.h>
 #include <cuda_runtime.h>
 #include <cuComplex.h>
 #include <complex>
@@ -20,6 +21,22 @@ namespace py = pybind11;
                                      cudaGetErrorString(err));                \
         }                                                                      \
     } while (0)
+
+// Lightweight error check - only in debug builds
+#ifdef NDEBUG
+    #define CUDA_CHECK_KERNEL() ((void)0)
+#else
+    #define CUDA_CHECK_KERNEL() CUDA_CHECK(cudaPeekAtLastError())
+#endif
+
+
+static cuDoubleComplex* get_cupy_ptr(py::object cupy_arr) {
+    py::dict cuda_iface = cupy_arr.attr("__cuda_array_interface__").cast<py::dict>();
+    py::tuple data_tuple = cuda_iface["data"].cast<py::tuple>();
+    uintptr_t ptr = data_tuple[0].cast<uintptr_t>();
+    if (ptr == 0) throw std::runtime_error("CuPy array has null device pointer");
+    return reinterpret_cast<cuDoubleComplex*>(ptr);
+}
 
 
 // Statevector class that manages GPU memory
@@ -78,7 +95,7 @@ public:
         
         // Launch kernel
         launch_apply_1q_gate(d_psi_, d_U_, num_qubits_, target_qubit);
-        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK_KERNEL();
     }
     
     // Apply 2-qubit gate
@@ -104,11 +121,12 @@ public:
         
         // Launch kernel
         launch_apply_2q_gate(d_psi_, d_U_, num_qubits_, q0, q1);
-        CUDA_CHECK(cudaDeviceSynchronize());
+        CUDA_CHECK_KERNEL();
     }
     
     // Get statevector as numpy array
     py::array_t<std::complex<double>> to_numpy() {
+        CUDA_CHECK(cudaDeviceSynchronize());
         // Create numpy array
         py::array_t<std::complex<double>> result(dim_);
         auto result_buf = result.request();
@@ -143,6 +161,33 @@ public:
         CUDA_CHECK(cudaMemcpy(d_psi_, &one, sizeof(cuDoubleComplex), 
                               cudaMemcpyHostToDevice));
     }
+
+    // Synchronize device
+    void synchronize() {
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+
+    void apply_1q_dev(int target_qubit, py::object U_cupy) {
+        if (target_qubit < 0 || target_qubit >= num_qubits_) {
+            throw std::runtime_error("Invalid target qubit");
+        }
+        cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
+        launch_apply_1q_gate(d_psi_, dU, num_qubits_, target_qubit);
+        CUDA_CHECK_KERNEL();
+    }
+
+    void apply_2q_dev(int q0, int q1, py::object U_cupy) {
+        if (q0 < 0 || q0 >= num_qubits_ || q1 < 0 || q1 >= num_qubits_) {
+            throw std::runtime_error("Invalid qubit indices");
+        }
+        if (q0 == q1) {
+            throw std::runtime_error("q0 and q1 must be different");
+        }
+        cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
+        launch_apply_2q_gate(d_psi_, dU, num_qubits_, q0, q1);
+        CUDA_CHECK_KERNEL();
+    }
+
     
     int num_qubits() const { return num_qubits_; }
     size_t dim() const { return dim_; }
@@ -187,7 +232,7 @@ void apply_1q_gate_cupy(
         num_qubits,
         target_qubit
     );
-    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK_KERNEL();
     
     cudaFree(d_U);
 }
@@ -229,7 +274,7 @@ void apply_2q_gate_cupy(
         num_qubits,
         q0, q1
     );
-    CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK_KERNEL();
     
     cudaFree(d_U);
 }
@@ -255,7 +300,19 @@ PYBIND11_MODULE(qgpusim_cuda, m) {
         .def("reset", &Statevector::reset,
              "Reset to |0...0> state")
         .def_property_readonly("num_qubits", &Statevector::num_qubits)
-        .def_property_readonly("dim", &Statevector::dim);
+        .def_property_readonly("dim", &Statevector::dim)
+
+        .def("apply_1q_dev", &Statevector::apply_1q_dev,
+            py::arg("target_qubit"), py::arg("U_dev"),
+            "Apply a 1-qubit gate using a device-resident (CuPy) 2x2 matrix")
+
+        .def("apply_2q_dev", &Statevector::apply_2q_dev,
+            py::arg("q0"), py::arg("q1"), py::arg("U_dev"),
+            "Apply a 2-qubit gate using a device-resident (CuPy) 4x4 matrix")
+
+        .def("synchronize", &Statevector::synchronize,
+            "Synchronize the device (use sparingly)");
+
     
     // Standalone functions for CuPy arrays
     m.def("apply_1q_gate", &apply_1q_gate_cupy,

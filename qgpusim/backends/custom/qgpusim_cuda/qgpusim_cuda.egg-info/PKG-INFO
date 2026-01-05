@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: qgpusim_cuda
+Version: 0.1.0
+Summary: CUDA-accelerated quantum gate simulation using pybind11
+Author: Your Name
+Requires-Python: >=3.8
+Requires-Dist: numpy
+Dynamic: author
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

@@ -399,6 +399,90 @@ def plot_rt_vs_nL(df, outdir):
         plt.savefig(outdir / f'rt_vs_n_nL_{task}.png', dpi=160)
         plt.close()
 
+def plot_total_memory_vs_n_gpu_only(df, outdir):
+    has_rss = 'rss_mb' in df.columns
+    has_gpu_mem = 'gpu_mem_mb' in df.columns
+    has_transpiler = 'transpiler' in df.columns
+
+    if not (has_rss or has_gpu_mem):
+        return  # nothing to compute
+
+    for task in sorted(df['task'].dropna().unique()):
+        sub = df[df['task'] == task]
+        if sub.empty:
+            continue
+
+        sub = sub.copy()
+
+        # compute total_mem_mb safely
+        if has_rss and has_gpu_mem:
+            sub['total_mem_mb'] = sub['rss_mb'].fillna(0) + sub['gpu_mem_mb'].fillna(0)
+        elif has_rss:
+            sub['total_mem_mb'] = sub['rss_mb']
+        else:
+            sub['total_mem_mb'] = sub['gpu_mem_mb']
+
+        plt.figure()
+        plotted_any = False
+
+        # === GPU ONLY ===
+        gpu_sub = sub[(sub['backend'] == 'gpu') & sub['total_mem_mb'].notna()]
+        if gpu_sub.empty:
+            plt.close()
+            continue
+
+        if has_transpiler:
+            for transp in sorted(gpu_sub['transpiler'].dropna().unique()):
+                grp = gpu_sub[gpu_sub['transpiler'] == transp]
+                if grp.empty:
+                    continue
+
+                gpu_med = (
+                    grp
+                    .groupby('nqubits', as_index=False)['total_mem_mb']
+                    .median()
+                    .sort_values('nqubits')
+                )
+                if gpu_med.empty:
+                    continue
+
+                plt.plot(
+                    gpu_med['nqubits'],
+                    gpu_med['total_mem_mb'],
+                    marker='o',
+                    label=f"gpu + {transp}"
+                )
+                plotted_any = True
+        else:
+            # fallback: single gpu line
+            gpu_med = (
+                gpu_sub
+                .groupby('nqubits', as_index=False)['total_mem_mb']
+                .median()
+                .sort_values('nqubits')
+            )
+            if not gpu_med.empty:
+                plt.plot(
+                    gpu_med['nqubits'],
+                    gpu_med['total_mem_mb'],
+                    marker='o',
+                    label='gpu'
+                )
+                plotted_any = True
+
+        if not plotted_any:
+            plt.close()
+            continue
+
+        plt.xlabel('nqubits')
+        plt.ylabel('Total memory usage (MB)')
+        plt.title(f'Total GPU memory vs nqubits — {task}')
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(outdir / f'total_gpu_mem_vs_n_{task}.png', dpi=160)
+        plt.close()
+
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -422,6 +506,7 @@ def main():
     plot_total_memory_vs_n(df, outdir)
     plot_rt_vs_nL(df, outdir)
     plot_transpile_and_sim_vs_n(df, outdir)
+    plot_total_memory_vs_n_gpu_only(df, outdir)
 
 if __name__ == '__main__':
     main()
