@@ -70,21 +70,17 @@ __global__ void apply_2q_gate_kernel(
     unsigned long long k = blockIdx.x * blockDim.x + threadIdx.x;
     if (k >= num_blocks) return;
 
-    // Build base index by inserting zero bits at positions low and high
-    unsigned long long base = 0ULL;
-    unsigned long long src  = k;
-
-    for (int p = 0; p < n; ++p) {
-        if (p == low || p == high) {
-            continue;
-        }
-        unsigned long long bit = (src & 1ULL);
-        src >>= 1;
-        base |= (bit << p);
-    }
-
+    // Build base index using optimized bitwise operations (no loop)
+    // Split k into three regions: below low, between low and high, above high
     unsigned long long mask_low  = 1ULL << low;
     unsigned long long mask_high = 1ULL << high;
+    
+    unsigned long long below_low_mask = mask_low - 1;
+    unsigned long long below_low = k & below_low_mask;
+    unsigned long long between_mask = (1ULL << (high - low - 1)) - 1;
+    unsigned long long between = ((k >> low) & between_mask) << (low + 1);
+    unsigned long long above = (k >> (high - 1)) << (high + 1);
+    unsigned long long base = below_low | between | above;
 
     unsigned long long i00 = base;
     unsigned long long i01 = base | mask_low;
@@ -115,6 +111,28 @@ __global__ void apply_2q_gate_kernel(
     psi[i01] = out1;
     psi[i10] = out2;
     psi[i11] = out3;
+}
+
+// ============================================================================
+// Diagonal Gate Kernel (optimized for RZ, P, T, S, Z gates)
+// Only multiplies by phase factors - no matrix multiplication needed
+// ============================================================================
+__global__ void apply_diagonal_1q_gate_kernel(
+    cuDoubleComplex* __restrict__ psi,
+    const cuDoubleComplex phase0,  // Phase for |0> component
+    const cuDoubleComplex phase1,  // Phase for |1> component
+    const long long n,
+    const int q
+) {
+    unsigned long long dim = 1ULL << n;
+    unsigned long long idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= dim) return;
+
+    // Check if bit q is set
+    unsigned long long mask = 1ULL << q;
+    cuDoubleComplex phase = (idx & mask) ? phase1 : phase0;
+    
+    psi[idx] = cuCmul(psi[idx], phase);
 }
 
 // ============================================================================
@@ -155,5 +173,23 @@ void launch_apply_2q_gate(
 
     apply_2q_gate_kernel<<<blocks, threads_per_block, 0, stream>>>(
         psi, U, num_qubits, q0, q1
+    );
+}
+
+void launch_apply_diagonal_1q_gate(
+    cuDoubleComplex* psi,
+    cuDoubleComplex phase0,
+    cuDoubleComplex phase1,
+    long long num_qubits,
+    int target_qubit,
+    cudaStream_t stream
+) {
+    unsigned long long dim = 1ULL << num_qubits;
+
+    int threads_per_block = 256;
+    int blocks = (dim + threads_per_block - 1) / threads_per_block;
+
+    apply_diagonal_1q_gate_kernel<<<blocks, threads_per_block, 0, stream>>>(
+        psi, phase0, phase1, num_qubits, target_qubit
     );
 }

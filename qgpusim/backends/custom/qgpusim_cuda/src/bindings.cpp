@@ -30,6 +30,45 @@ namespace py = pybind11;
 #endif
 
 
+// ===========================================================================
+// Persistent GPU buffers for standalone functions (avoid per-gate malloc/free)
+// ===========================================================================
+class PersistentGateBuffers {
+public:
+    static PersistentGateBuffers& instance() {
+        static PersistentGateBuffers inst;
+        return inst;
+    }
+    
+    cuDoubleComplex* get_1q_buffer() {
+        if (!d_U_1q_) {
+            CUDA_CHECK(cudaMalloc(&d_U_1q_, 4 * sizeof(cuDoubleComplex)));
+        }
+        return d_U_1q_;
+    }
+    
+    cuDoubleComplex* get_2q_buffer() {
+        if (!d_U_2q_) {
+            CUDA_CHECK(cudaMalloc(&d_U_2q_, 16 * sizeof(cuDoubleComplex)));
+        }
+        return d_U_2q_;
+    }
+    
+    ~PersistentGateBuffers() {
+        if (d_U_1q_) cudaFree(d_U_1q_);
+        if (d_U_2q_) cudaFree(d_U_2q_);
+    }
+    
+private:
+    PersistentGateBuffers() : d_U_1q_(nullptr), d_U_2q_(nullptr) {}
+    PersistentGateBuffers(const PersistentGateBuffers&) = delete;
+    PersistentGateBuffers& operator=(const PersistentGateBuffers&) = delete;
+    
+    cuDoubleComplex* d_U_1q_;
+    cuDoubleComplex* d_U_2q_;
+};
+
+
 static cuDoubleComplex* get_cupy_ptr(py::object cupy_arr) {
     py::dict cuda_iface = cupy_arr.attr("__cuda_array_interface__").cast<py::dict>();
     py::tuple data_tuple = cuda_iface["data"].cast<py::tuple>();
@@ -188,6 +227,17 @@ public:
         CUDA_CHECK_KERNEL();
     }
 
+    // Apply diagonal 1-qubit gate (optimized for RZ, P, T, S, Z)
+    void apply_diagonal_1q(int target_qubit, std::complex<double> phase0, std::complex<double> phase1) {
+        if (target_qubit < 0 || target_qubit >= num_qubits_) {
+            throw std::runtime_error("Invalid target qubit");
+        }
+        cuDoubleComplex p0 = make_cuDoubleComplex(phase0.real(), phase0.imag());
+        cuDoubleComplex p1 = make_cuDoubleComplex(phase1.real(), phase1.imag());
+        launch_apply_diagonal_1q_gate(d_psi_, p0, p1, num_qubits_, target_qubit);
+        CUDA_CHECK_KERNEL();
+    }
+
     
     int num_qubits() const { return num_qubits_; }
     size_t dim() const { return dim_; }
@@ -217,9 +267,8 @@ void apply_1q_gate_cupy(
         throw std::runtime_error("U must be a 2x2 matrix");
     }
     
-    // Allocate temporary device memory for the gate matrix
-    cuDoubleComplex* d_U;
-    CUDA_CHECK(cudaMalloc(&d_U, 4 * sizeof(cuDoubleComplex)));
+    // Use persistent buffer instead of per-call malloc/free
+    cuDoubleComplex* d_U = PersistentGateBuffers::instance().get_1q_buffer();
     
     auto U_ptr = static_cast<std::complex<double>*>(U_buf.ptr);
     CUDA_CHECK(cudaMemcpy(d_U, U_ptr, 4 * sizeof(cuDoubleComplex),
@@ -233,8 +282,6 @@ void apply_1q_gate_cupy(
         target_qubit
     );
     CUDA_CHECK_KERNEL();
-    
-    cudaFree(d_U);
 }
 
 // Standalone function to apply 2-qubit gate to a CuPy array
@@ -259,9 +306,8 @@ void apply_2q_gate_cupy(
         throw std::runtime_error("q0 and q1 must be different");
     }
     
-    // Allocate temporary device memory for the gate matrix
-    cuDoubleComplex* d_U;
-    CUDA_CHECK(cudaMalloc(&d_U, 16 * sizeof(cuDoubleComplex)));
+    // Use persistent buffer instead of per-call malloc/free
+    cuDoubleComplex* d_U = PersistentGateBuffers::instance().get_2q_buffer();
     
     auto U_ptr = static_cast<std::complex<double>*>(U_buf.ptr);
     CUDA_CHECK(cudaMemcpy(d_U, U_ptr, 16 * sizeof(cuDoubleComplex),
@@ -275,8 +321,6 @@ void apply_2q_gate_cupy(
         q0, q1
     );
     CUDA_CHECK_KERNEL();
-    
-    cudaFree(d_U);
 }
 
 
@@ -309,6 +353,10 @@ PYBIND11_MODULE(qgpusim_cuda, m) {
         .def("apply_2q_dev", &Statevector::apply_2q_dev,
             py::arg("q0"), py::arg("q1"), py::arg("U_dev"),
             "Apply a 2-qubit gate using a device-resident (CuPy) 4x4 matrix")
+
+        .def("apply_diagonal_1q", &Statevector::apply_diagonal_1q,
+            py::arg("target_qubit"), py::arg("phase0"), py::arg("phase1"),
+            "Apply a diagonal 1-qubit gate (optimized for RZ, P, T, S, Z gates)")
 
         .def("synchronize", &Statevector::synchronize,
             "Synchronize the device (use sparingly)");
