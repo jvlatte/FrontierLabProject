@@ -7,7 +7,7 @@ import argparse
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 def plot_transpile_and_sim_vs_n(df, outdir):
-    required = {'nqubits', 'backend', 'task', 'transpile_s', 'simulate_s', 'transpiler'}
+    required = {'nqubits', 'mode', 'task', 'transpile_s', 'simulate_s', 'transpiler'}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"Missing required columns: {sorted(missing)}")
@@ -26,7 +26,7 @@ def plot_transpile_and_sim_vs_n(df, outdir):
 
         # median aggregation
         med = (
-            sub.groupby(['backend', 'transpiler', 'nqubits'], as_index=False)[['transpile_s', 'simulate_s']]
+            sub.groupby(['mode', 'transpiler', 'nqubits'], as_index=False)[['transpile_s', 'simulate_s']]
                .median()
                .sort_values('nqubits')
         )
@@ -35,12 +35,12 @@ def plot_transpile_and_sim_vs_n(df, outdir):
 
         # transpilation time plot
         plt.figure()
-        for backend, transp in combos:
-            line = med[(med['backend'] == backend) & (med['transpiler'] == transp)]
+        for mode, transp in combos:
+            line = med[(med['mode'] == mode) & (med['transpiler'] == transp)]
             if line.empty:
                 continue
             plt.plot(line['nqubits'], line['transpile_s'], marker='o',
-                     label=f"{backend} + {transp}")
+                     label=f"{mode} + {transp}")
         plt.xlabel('nqubits')
         plt.ylabel('transpile time (s)')
         plt.title(f'Transpile time vs nqubits — {task}')
@@ -51,12 +51,12 @@ def plot_transpile_and_sim_vs_n(df, outdir):
 
         # simulation time plot
         plt.figure()
-        for backend, transp in combos:
-            line = med[(med['backend'] == backend) & (med['transpiler'] == transp)]
+        for mode, transp in combos:
+            line = med[(med['mode'] == mode) & (med['transpiler'] == transp)]
             if line.empty:
                 continue
             plt.plot(line['nqubits'], line['simulate_s'], marker='o',
-                     label=f"{backend} + {transp}")
+                     label=f"{mode} + {transp}")
         plt.xlabel('nqubits')
         plt.ylabel('simulate time (s)')
         plt.title(f'Simulate time vs nqubits — {task}')
@@ -75,7 +75,7 @@ def plot_runtime_vs_n(df, outdir):
             continue
         plt.figure()
             
-        cpu_sub = sub[sub['backend'] == 'cpu']
+        cpu_sub = sub[sub['mode'] == 'cpu']
         if not cpu_sub.empty:
             if has_transpiler:
                 for transp in sorted(cpu_sub['transpiler'].dropna().unique()):
@@ -106,7 +106,7 @@ def plot_runtime_vs_n(df, outdir):
                              marker='o', label='cpu')
 
         # gpu combo
-        gpu_sub = sub[sub['backend'] == 'gpu']
+        gpu_sub = sub[sub['mode'] == 'gpu']
         if not gpu_sub.empty:
             for transp in sorted(gpu_sub['transpiler'].dropna().unique()):
                 grp = gpu_sub[gpu_sub['transpiler'] == transp]
@@ -136,21 +136,21 @@ def plot_transpile_sim_breakdown(df, outdir):
 
     if 'transpiler' in sub.columns:
         tr = sub['transpiler'].fillna('')
-        sub['backend_label'] = np.where(
+        sub['mode_label'] = np.where(
             tr != '',
-            sub['backend'] + '+' + tr,
-            sub['backend']
+            sub['mode'] + '+' + tr,
+            sub['mode']
         )
     else:
-        sub['backend_label'] = sub['backend']
+        sub['mode_label'] = sub['mode']
 
-    agg = sub.groupby(['backend_label', 'task'], as_index=False)[['transpile_s', 'simulate_s']].median()
+    agg = sub.groupby(['mode_label', 'task'], as_index=False)[['transpile_s', 'simulate_s']].median()
 
     plt.figure()
     x = np.arange(len(agg))
     plt.bar(x, agg['transpile_s'], label='transpile')
     plt.bar(x, agg['simulate_s'], bottom=agg['transpile_s'], label='simulate')
-    plt.xticks(x, [f"{b}\n{t}" for b, t in zip(agg['backend_label'], agg['task'])])
+    plt.xticks(x, [f"{m}\n{t}" for m, t in zip(agg['mode_label'], agg['task'])])
     plt.ylabel('time (s)')
     plt.title('Median time breakdown')
     plt.legend()
@@ -162,8 +162,8 @@ def plot_transpile_sim_breakdown(df, outdir):
 def plot_speedup(df, outdir):
     # pivot by (task, nqubits); need both cpu and gpu rows
     key = ['task','nqubits']
-    cpu = df[df['backend']=='cpu'].groupby(key)['total_s'].median()
-    gpu = df[df['backend']=='gpu'].groupby(key)['total_s'].median()
+    cpu = df[df['mode']=='cpu'].groupby(key)['total_s'].median()
+    gpu = df[df['mode']=='gpu'].groupby(key)['total_s'].median()
     common = cpu.index.intersection(gpu.index)
     if len(common)==0: 
         return
@@ -224,7 +224,7 @@ def plot_memory_vs_n(df, outdir):
 
         # 1) CPU: use rss_mb
         if has_rss:
-            cpu_sub = sub[(sub['backend'] == 'cpu') & sub['rss_mb'].notna()]
+            cpu_sub = sub[(sub['mode'] == 'cpu') & sub['rss_mb'].notna()]
             if not cpu_sub.empty:
                 cpu_med = (
                     cpu_sub
@@ -238,7 +238,7 @@ def plot_memory_vs_n(df, outdir):
 
         # 2) GPU: use gpu_mem_mb, split by transpiler => gpu + baseline/custom
         if has_gpu_mem:
-            gpu_sub = sub[(sub['backend'] == 'gpu') & sub['gpu_mem_mb'].notna()]
+            gpu_sub = sub[(sub['mode'] == 'gpu') & sub['gpu_mem_mb'].notna()]
             if not gpu_sub.empty:
                 if has_transpiler:
                     for transp in sorted(gpu_sub['transpiler'].dropna().unique()):
@@ -310,7 +310,7 @@ def plot_total_memory_vs_n(df, outdir):
         plotted_any = False
 
         # 1) CPU: aggregate all cpu rows (transpiler ignored)
-        cpu_sub = sub[(sub['backend'] == 'cpu') & sub['total_mem_mb'].notna()]
+        cpu_sub = sub[(sub['mode'] == 'cpu') & sub['total_mem_mb'].notna()]
         if not cpu_sub.empty:
             cpu_med = (
                 cpu_sub
@@ -324,7 +324,7 @@ def plot_total_memory_vs_n(df, outdir):
                 plotted_any = True
 
         # 2) GPU: split by transpiler so you get gpu+baseline / gpu+custom
-        gpu_sub = sub[(sub['backend'] == 'gpu') & sub['total_mem_mb'].notna()]
+        gpu_sub = sub[(sub['mode'] == 'gpu') & sub['total_mem_mb'].notna()]
         if not gpu_sub.empty:
             if has_transpiler:
                 for transp in sorted(gpu_sub['transpiler'].dropna().unique()):
@@ -426,7 +426,7 @@ def plot_total_memory_vs_n_gpu_only(df, outdir):
         plotted_any = False
 
         # === GPU ONLY ===
-        gpu_sub = sub[(sub['backend'] == 'gpu') & sub['total_mem_mb'].notna()]
+        gpu_sub = sub[(sub['mode'] == 'gpu') & sub['total_mem_mb'].notna()]
         if gpu_sub.empty:
             plt.close()
             continue
