@@ -9,9 +9,30 @@ from dataclasses import dataclass
 @dataclass
 class Tile:
     tile_idx: int
+
+    # Global qubit IDs that are local in this tile (Q_L)
     logical_qubits: List[int]
+
+    # global qubit -> local bit index (0..|Q_L|-1)
     global_to_local_map: Dict[int, int]
+
+    # Desired statevector layout for this tile:
+    # layout[pos] = global qubit at bit-position pos
+    layout: List[int]
+
+    # Gates belonging to this tile (compile-time)
     gates: List[DAGOpNode]
+
+
+def _build_tile_layout(logical_qubits: List[int], num_qubits: int) -> List[int]:
+    """
+    layout[pos] = global qubit at bit-position pos.
+    We force tile's logical_qubits to occupy the lowest bit positions.
+    """
+    ql = list(logical_qubits)
+    ql_set = set(ql)
+    rest = [q for q in range(num_qubits) if q not in ql_set]
+    return ql + rest
 
 # ------------ PASSES -------------
 
@@ -320,20 +341,46 @@ class LazyQubitReordering(TransformationPass):
         }
     
     @staticmethod
-    def build_tiling_plan(g_schedule: list[DAGOpNode], M: dict[DAGOpNode, set[int]]) -> List[Tile]:
+    def build_tiling_plan(g_schedule: list[DAGOpNode], M: dict[DAGOpNode, set[int]], num_qubits: int) -> List[Tile]:
         # use g and M to build list of Tiles
         raw_tiles = LazyQubitReordering.extract_tiles(g_schedule, M)
         tile_plan = []
 
-        for tile_idx, (ql, gates) in enumerate(raw_tiles):
-            global_to_local = {gq: lq for lq, gq in enumerate(sorted(ql))}
+        # for tile_idx, (ql, gates) in enumerate(raw_tiles):
+        #     global_to_local = {gq: lq for lq, gq in enumerate(sorted(ql))}
+        #     tile = Tile(
+        #         tile_idx=tile_idx,
+        #         logical_qubits=sorted(ql),
+        #         global_to_local_map=global_to_local,
+        #         gates=gates
+        #     )
+        #     tile_plan.append(tile)
+
+
+
+        # new changes
+        for tile_idx, (ql_set, gates) in enumerate(raw_tiles):
+            # Keep QL as a deterministic ordered list.
+            # (You can choose sorted(...) or preserve insertion order if you want;
+            # sorted is fine for now.)
+            ql = sorted(ql_set)
+
+            # Define desired layout: tile's QL occupy bit positions 0..|QL|-1
+            layout = _build_tile_layout(ql, num_qubits)
+
+            # Since we force QL into the lowest bit positions, local bit index = position in ql
+            global_to_local = {gq: i for i, gq in enumerate(ql)}
+
             tile = Tile(
                 tile_idx=tile_idx,
-                logical_qubits=sorted(ql),
+                logical_qubits=ql,
                 global_to_local_map=global_to_local,
-                gates=gates
+                layout=layout,
+                gates=gates,
             )
             tile_plan.append(tile)
+
+
 
         return tile_plan
 
@@ -376,7 +423,7 @@ class LazyQubitReordering(TransformationPass):
         self.property_set["flat_tiling_schedule"] = g_schedule
         self.property_set["flat_tiling_mapping"] = M
 
-        tiling_plan = self.build_tiling_plan(g_schedule, M)
+        tiling_plan = self.build_tiling_plan(g_schedule, M, num_qubits)
         self.property_set["flat_tiling_plan"] = tiling_plan
 
         # 6) Create a new empty DAG with same structure

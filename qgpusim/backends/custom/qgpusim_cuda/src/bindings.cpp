@@ -89,7 +89,10 @@ public:
         
         // Allocate GPU memory for gate matrix (max 4x4 = 16 elements)
         CUDA_CHECK(cudaMalloc(&d_U_, 16 * sizeof(cuDoubleComplex)));
-        
+
+        CUDA_CHECK(cudaMalloc(&d_tmp_, dim_ * sizeof(cuDoubleComplex)));
+        CUDA_CHECK(cudaMalloc(&d_map_, num_qubits_ * sizeof(int)));
+
         // Initialize to |0...0> state
         CUDA_CHECK(cudaMemset(d_psi_, 0, dim_ * sizeof(cuDoubleComplex)));
         
@@ -101,6 +104,9 @@ public:
     ~Statevector() {
         if (d_psi_) cudaFree(d_psi_);
         if (d_U_) cudaFree(d_U_);
+
+        if (d_tmp_) cudaFree(d_tmp_);
+        if (d_map_) cudaFree(d_map_);
     }
     
     // Disable copy
@@ -110,10 +116,59 @@ public:
     // Move semantics
     Statevector(Statevector&& other) noexcept 
         : d_psi_(other.d_psi_), d_U_(other.d_U_), 
+          d_tmp_(other.d_tmp_), d_map_(other.d_map_),
           num_qubits_(other.num_qubits_), dim_(other.dim_) {
         other.d_psi_ = nullptr;
         other.d_U_ = nullptr;
+        other.d_tmp_ = nullptr;
+        other.d_map_ = nullptr;
     }
+
+    void permute(py::list layout_old_py, py::list layout_new_py) {
+        if ((int)py::len(layout_old_py) != num_qubits_ ||
+            (int)py::len(layout_new_py) != num_qubits_) {
+            throw std::runtime_error("layout_old/layout_new must have length num_qubits");
+        }
+
+        std::vector<int> layout_old(num_qubits_);
+        std::vector<int> layout_new(num_qubits_);
+        for (int i = 0; i < num_qubits_; ++i) {
+            layout_old[i] = layout_old_py[i].cast<int>();
+            layout_new[i] = layout_new_py[i].cast<int>();
+        }
+
+        // Build new_pos[global_qubit] = new bit position
+        std::vector<int> new_pos(num_qubits_, -1);
+        for (int p = 0; p < num_qubits_; ++p) {
+            int gq = layout_new[p];
+            if (gq < 0 || gq >= num_qubits_) throw std::runtime_error("layout_new contains invalid qubit id");
+            if (new_pos[gq] != -1) throw std::runtime_error("layout_new is not a permutation");
+            new_pos[gq] = p;
+        }
+
+        // Build map_old_to_new[p_old] = p_new
+        std::vector<int> map_old_to_new(num_qubits_, -1);
+        for (int p_old = 0; p_old < num_qubits_; ++p_old) {
+            int gq = layout_old[p_old];
+            if (gq < 0 || gq >= num_qubits_) throw std::runtime_error("layout_old contains invalid qubit id");
+            int p_new = new_pos[gq];
+            if (p_new < 0) throw std::runtime_error("layout_old contains qubit not in layout_new");
+            map_old_to_new[p_old] = p_new;
+        }
+
+        // Copy map to device
+        CUDA_CHECK(cudaMemcpy(d_map_, map_old_to_new.data(),
+                            num_qubits_ * sizeof(int),
+                            cudaMemcpyHostToDevice));
+
+        // Launch permute: d_tmp_[j] = d_psi_[i]
+        launch_permute_bits(d_psi_, d_tmp_, d_map_, num_qubits_, dim_);
+        CUDA_CHECK_KERNEL();
+
+        // Swap buffers (now d_psi_ contains permuted state)
+        std::swap(d_psi_, d_tmp_);
+    }
+
     
     // Apply 1-qubit gate
     void apply_1q(int target_qubit, py::array_t<std::complex<double>> U_numpy) {
@@ -247,6 +302,9 @@ private:
     cuDoubleComplex* d_U_ = nullptr;    // Device gate matrix
     int num_qubits_;
     size_t dim_;
+    cuDoubleComplex* d_tmp_ = nullptr;
+    int* d_map_ = nullptr;
+
 };
 
 
@@ -359,7 +417,12 @@ PYBIND11_MODULE(qgpusim_cuda, m) {
             "Apply a diagonal 1-qubit gate (optimized for RZ, P, T, S, Z gates)")
 
         .def("synchronize", &Statevector::synchronize,
-            "Synchronize the device (use sparingly)");
+            "Synchronize the device (use sparingly)")
+
+        .def("permute", &Statevector::permute,
+            py::arg("layout_old"), py::arg("layout_new"),
+            "Permute qubit bit-positions by reindexing the statevector");
+
 
     
     // Standalone functions for CuPy arrays

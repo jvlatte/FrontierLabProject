@@ -202,13 +202,13 @@ def main():
         "mode": ["compare"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [15, 20, 25],
-        "depth": [8, 16],
+        "nqubits": [25],
+        "depth": [16],
         "shots": [1024],
         "repeats": [5],
         "seed": [42],
         "transpiler": ["baseline", "custom"],
-        "nL": [6],
+        "nL": [6, 8, 10, 12],
         "backend": ["aer", "custom"]
     }
 

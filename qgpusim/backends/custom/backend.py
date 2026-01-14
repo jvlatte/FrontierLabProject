@@ -4,28 +4,6 @@ from typing import List, Dict, Tuple, Optional
 from collections import OrderedDict
 import numpy as np
 import cupy as cp
-import logging
-
-# Configure module logger with NullHandler (silent by default)
-logger = logging.getLogger(__name__)
-logger.addHandler(logging.NullHandler())
-
-
-def set_log_level(level: int = logging.INFO):
-    """Enable logging output at the specified level.
-    
-    Args:
-        level: Logging level (e.g., logging.DEBUG, logging.INFO, logging.WARNING)
-    
-    Example:
-        import logging
-        from qgpusim.backends.custom import backend
-        backend.set_log_level(logging.DEBUG)
-    """
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('[qgpusim] %(levelname)s: %(message)s'))
-    logger.handlers = [handler]
-    logger.setLevel(level)
 
 
 # LRU-bounded cache for gate matrices
@@ -99,104 +77,42 @@ def clear_gate_cache():
     GATE_CACHE.clear()
     cp.get_default_memory_pool().free_all_blocks()
 
+def permute_statevector(psi: cp.ndarray, layout_old, layout_new):
+    n = len(layout_old)
+    dim = 1 << n
+
+    old_pos = {q: p for p, q in enumerate(layout_old)}
+    new_pos = {q: p for p, q in enumerate(layout_new)}
+
+    map_old_to_new = cp.asarray(
+        [new_pos[layout_old[p]] for p in range(n)],
+        dtype=cp.int32
+    )
+
+    idx_old = cp.arange(dim, dtype=cp.uint32)
+    idx_new = cp.zeros_like(idx_old)
+
+    for p_old in range(n):
+        bit = (idx_old >> p_old) & 1
+        idx_new |= (bit << map_old_to_new[p_old])
+
+    psi_new = psi[idx_new]
+    return psi_new
+
+
 
 # Try to import the native CUDA module (pybind11-based)
 try:
     from .native import qgpusim_cuda
     USE_NATIVE = True
-    logger.info("Using native pybind11 CUDA backend")
+    print("Using native pybind11 CUDA backend")
 except ImportError as e:
     USE_NATIVE = False
-    logger.warning(f"Native CUDA module not available: {e}")
-    logger.info("Falling back to CuPy-based implementation")
+    print(f"Native CUDA module not available: {e}")
+    print("Falling back to CuPy-based implementation")
 
 
 # Unified gate matrix access - use get_gate_matrix_host() or get_gate_matrix_dev()
-
-
-# =============================================================================
-# Gate Fusion Utilities
-# =============================================================================
-
-def _is_diagonal_gate(op) -> bool:
-    """Check if a gate is diagonal (only modifies phases)."""
-    return op.name in {'rz', 'p', 's', 't', 'sdg', 'tdg', 'z', 'u1'}
-
-
-def _fuse_1q_gates(gates: List[Tuple], qubit: int, np_dtype) -> Optional[np.ndarray]:
-    """Fuse consecutive 1-qubit gates on the same qubit by matrix multiplication.
-    
-    Args:
-        gates: List of (op, qargs) tuples to fuse
-        qubit: The target qubit
-        np_dtype: NumPy dtype for the result
-        
-    Returns:
-        Fused 2x2 unitary matrix, or None if fusion not possible
-    """
-    if len(gates) == 0:
-        return None
-    if len(gates) == 1:
-        return get_gate_matrix_host(gates[0][0], dtype=np_dtype)
-    
-    # Multiply matrices in reverse order (last gate first in matrix product)
-    fused = np.eye(2, dtype=np_dtype)
-    for op, _ in gates:
-        try:
-            U = get_gate_matrix_host(op, dtype=np_dtype)
-            fused = U @ fused
-        except Exception:
-            return None
-    return fused
-
-
-def _optimize_gate_sequence(tile_plan: List, qc: QuantumCircuit, qubit_map: Dict) -> List[Tuple]:
-    """Optimize gate sequence by fusing consecutive 1-qubit gates on the same qubit.
-    
-    Returns list of (op_or_matrix, global_qubits, is_fused) tuples.
-    """
-    optimized = []
-    pending_1q = {}  # qubit -> [(op, qargs), ...]
-    
-    def flush_pending(qubit: Optional[int] = None):
-        """Flush pending 1-qubit gates for a qubit (or all if qubit is None)."""
-        qubits_to_flush = [qubit] if qubit is not None else list(pending_1q.keys())
-        for q in qubits_to_flush:
-            if q in pending_1q and pending_1q[q]:
-                gates = pending_1q.pop(q)
-                if len(gates) == 1:
-                    # Single gate, no fusion needed
-                    op, qargs = gates[0]
-                    optimized.append((op, [q], False))
-                else:
-                    # Multiple gates fused
-                    optimized.append((gates, [q], True))
-    
-    for tile in tile_plan:
-        for node in tile.gates:
-            op = node.op
-            if not hasattr(op, "to_matrix"):
-                continue
-                
-            qargs = node.qargs
-            global_qubits = [qubit_map[q] for q in qargs]
-            
-            if len(global_qubits) == 1:
-                # 1-qubit gate: accumulate for potential fusion
-                qubit = global_qubits[0]
-                if qubit not in pending_1q:
-                    pending_1q[qubit] = []
-                pending_1q[qubit].append((op, qargs))
-            else:
-                # Multi-qubit gate: flush any pending 1Q gates on involved qubits
-                for q in global_qubits:
-                    flush_pending(q)
-                optimized.append((op, global_qubits, False))
-    
-    # Flush any remaining pending gates
-    flush_pending()
-    
-    return optimized
 
 
 # Native module wrapper functions (using pybind11 compiled CUDA)
@@ -298,7 +214,7 @@ def apply_2q_gate_cupy_fallback(
     del base, i00, i01, i10, i11, v00, v01, v10, v11
 
 
-def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None, use_float32: bool=False, enable_fusion: bool=True):
+def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None, use_float32: bool=False):
     """Run quantum circuit simulation on custom GPU backend.
     
     Args:
@@ -308,79 +224,71 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
         shots: Number of measurement shots (optional)
         use_float32: If True, use complex64 (float32) for ~2x memory savings.
                      Default False uses complex128 (float64) for higher precision.
-        enable_fusion: If True, fuse consecutive 1-qubit gates on same qubit (default True).
     """
-    logger.info("Running custom GPU backend")
+    print("Running custom GPU backend")
     num_qubits = qc.num_qubits
     
     # Select precision
     cp_dtype = cp.complex64 if use_float32 else cp.complex128
     np_dtype = np.complex64 if use_float32 else np.complex128
-    logger.debug(f"Precision: {'complex64' if use_float32 else 'complex128'}")
+    print(f"Precision: {'complex64' if use_float32 else 'complex128'}")
 
     # Pre-build qubit index map (avoid repeated find_bit calls)
     qubit_map = {q: qc.find_bit(q).index for q in qc.qubits}
-    
-    # Optimize gate sequence with fusion if enabled
-    if enable_fusion:
-        optimized_gates = _optimize_gate_sequence(tile_plan, qc, qubit_map)
-        total_original = sum(len(t.gates) for t in tile_plan)
-        logger.debug(f"Gate fusion: {total_original} -> {len(optimized_gates)} operations")
-    else:
-        optimized_gates = None
 
     # Use fully native Statevector class (gate-by-gate execution)
     if USE_NATIVE:
         sv = qgpusim_cuda.Statevector(num_qubits)
-        logger.debug("Mode: Native pybind11 CUDA")
         print("Mode: Native pybind11 CUDA")
         
-        if enable_fusion and optimized_gates is not None:
-            # Execute optimized gate sequence
-            for item, global_qubits, is_fused in optimized_gates:
-                if is_fused:
-                    # Fused gates: multiply matrices and apply once
-                    fused_matrix = _fuse_1q_gates(item, global_qubits[0], np_dtype)
-                    if fused_matrix is not None:
-                        U_dev = cp.asarray(fused_matrix, dtype=cp_dtype, order="C")
-                        sv.apply_1q_dev(global_qubits[0], U_dev)
-                else:
-                    # Single gate
-                    op = item
-                    try:
-                        U_dev = get_gate_matrix_dev(op, dtype=cp_dtype)
-                        U_host = get_gate_matrix_host(op, dtype=np_dtype)
-                    except Exception:
-                        continue
+        layout = list(range(num_qubits))
 
-                    if U_host.shape == (2, 2) and len(global_qubits) == 1:
-                        sv.apply_1q_dev(global_qubits[0], U_dev)
-                    elif U_host.shape == (4, 4) and len(global_qubits) == 2:
-                        sv.apply_2q_dev(global_qubits[0], global_qubits[1], U_dev)
-        else:
-            # Original non-fused execution
-            for tile in tile_plan:
-                for node in tile.gates:
-                    op = node.op
+        for tile in tile_plan:
+            if tile.layout != layout:
+                sv.permute(layout, tile.layout)
+                layout = tile.layout
 
-                    if not hasattr(op, "to_matrix"):
-                        continue
+            for node in tile.gates:
+                op = node.op
+                if not hasattr(op, "to_matrix"):
+                    continue
 
-                    try:
-                        U_dev = get_gate_matrix_dev(op, dtype=cp_dtype)
-                        U_host = get_gate_matrix_host(op, dtype=np_dtype)
-                    except Exception:
-                        continue
+                U_dev = get_gate_matrix_dev(op, dtype=cp_dtype)
+                U_host = get_gate_matrix_host(op, dtype=np_dtype)
 
-                    qargs = node.qargs
-                    global_qubits = [qubit_map[q] for q in qargs]
+                global_qubits = [qubit_map[q] for q in node.qargs]
+                local_qubits = [tile.global_to_local_map[gq] for gq in global_qubits]
 
-                    if U_host.shape == (2, 2) and len(global_qubits) == 1:
-                        sv.apply_1q_dev(global_qubits[0], U_dev)
-                    elif U_host.shape == (4, 4) and len(global_qubits) == 2:
-                        sv.apply_2q_dev(global_qubits[0], global_qubits[1], U_dev)
+                if U_host.shape == (2, 2) and len(local_qubits) == 1:
+                    sv.apply_1q_dev(local_qubits[0], U_dev)
+                elif U_host.shape == (4, 4) and len(local_qubits) == 2:
+                    sv.apply_2q_dev(local_qubits[0], local_qubits[1], U_dev)
 
-        logger.debug("Finished circuit execution using native CUDA module")
+
+
+
+
+        # for tile in tile_plan:
+        #     for node in tile.gates:
+        #         op = node.op
+
+        #         if not hasattr(op, "to_matrix"):
+        #             continue
+
+        #         try:
+        #             U_dev = get_gate_matrix_dev(op, dtype=cp_dtype)
+        #             U_host = get_gate_matrix_host(op, dtype=np_dtype)
+        #         except Exception:
+        #             continue
+
+        #         qargs = node.qargs
+        #         global_qubits = [qubit_map[q] for q in qargs]
+
+        #         if U_host.shape == (2, 2) and len(global_qubits) == 1:
+        #             sv.apply_1q_dev(global_qubits[0], U_dev)
+        #         elif U_host.shape == (4, 4) and len(global_qubits) == 2:
+        #             sv.apply_2q_dev(global_qubits[0], global_qubits[1], U_dev)
+
         print("Finished circuit execution using native CUDA module")
         result = sv.to_numpy()
         # Free GPU memory from statevector
@@ -390,61 +298,58 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
 
     # Fallback: Use CuPy arrays with native kernel functions (if available) or pure CuPy
     print('CuPy-based fallback backend')
-    logger.debug("Mode: CuPy-based fallback")
+    print("Mode: CuPy-based fallback")
     dim = 1 << num_qubits
     psi_gpu = cp.zeros(dim, dtype=cp_dtype)
     psi_gpu[0] = 1.0 + 0.0j
+    layout = list(range(num_qubits))  # current layout: bitpos -> global qubit
 
-    logger.debug(f"task: {task}, shots: {shots}, num_qubits: {num_qubits}, num_tiles: {len(tile_plan)}")
 
-    if enable_fusion and optimized_gates is not None:
-        # Execute optimized gate sequence
-        for item, global_qubits, is_fused in optimized_gates:
-            if is_fused:
-                fused_matrix = _fuse_1q_gates(item, global_qubits[0], np_dtype)
-                if fused_matrix is not None:
-                    U_gpu = cp.asarray(fused_matrix, dtype=cp_dtype, order="C")
-                    apply_1q_gate_cupy_fallback(psi_gpu, U_gpu, global_qubits[0], num_qubits)
+    print(f"task: {task}, shots: {shots}, num_qubits: {num_qubits}, num_tiles: {len(tile_plan)}")
+
+    # changed this up
+    for tile in tile_plan:
+        # ---- tile boundary "QR" (single-GPU = statevector permutation) ----
+        if tile.layout != layout:
+            psi_gpu = permute_statevector(psi_gpu, layout, tile.layout)
+            layout = tile.layout
+
+        # ---- narrow-access execution using tile-local indices ----
+        for node in tile.gates:
+            op = node.op
+
+            if not hasattr(op, "to_matrix"):
+                print(f"[skip] non-unitary op: {op.name}")
+                continue
+
+            try:
+                U_gpu = get_gate_matrix_dev(op, dtype=cp_dtype)
+            except Exception:
+                print(f"[skip] op {op.name} has no matrix representation")
+                continue
+
+            global_qubits = [qubit_map[q] for q in node.qargs]
+
+            # Convert global qubit ids -> tile-local bit positions (0..|QL|-1)
+            try:
+                local_qubits = [tile.global_to_local_map[gq] for gq in global_qubits]
+            except KeyError:
+                raise RuntimeError(
+                    f"Gate targets {global_qubits} not in tile QL={tile.logical_qubits} "
+                    f"(tile_idx={tile.tile_idx})"
+                )
+
+            if U_gpu.shape == (2, 2) and len(local_qubits) == 1:
+                apply_1q_gate_cupy_fallback(psi_gpu, U_gpu, local_qubits[0], num_qubits)
+            elif U_gpu.shape == (4, 4) and len(local_qubits) == 2:
+                apply_2q_gate_cupy_fallback(psi_gpu, U_gpu, local_qubits[0], local_qubits[1], num_qubits)
             else:
-                op = item
-                try:
-                    U_gpu = get_gate_matrix_dev(op, dtype=cp_dtype)
-                except Exception:
-                    logger.debug(f"[skip] op {op.name} has no matrix representation")
-                    continue
+                print(
+                    f"[skip] unsupported gate {op.name} "
+                    f"shape={U_gpu.shape} on {len(local_qubits)} qubits"
+                )
+                continue
 
-                if U_gpu.shape == (2, 2) and len(global_qubits) == 1:
-                    apply_1q_gate_cupy_fallback(psi_gpu, U_gpu, global_qubits[0], num_qubits)
-                elif U_gpu.shape == (4, 4) and len(global_qubits) == 2:
-                    apply_2q_gate_cupy_fallback(psi_gpu, U_gpu, global_qubits[0], global_qubits[1], num_qubits)
-    else:
-        for tile in tile_plan:
-            for node in tile.gates:
-                op = node.op
-
-                if not hasattr(op, "to_matrix"):
-                    logger.debug(f"[skip] non-unitary op: {op.name}")
-                    continue
-
-                try:
-                    U_gpu = get_gate_matrix_dev(op, dtype=cp_dtype)
-                except Exception:
-                    logger.debug(f"[skip] op {op.name} has no matrix representation")
-                    continue
-
-                qargs = node.qargs
-                global_qubits = [qubit_map[q] for q in qargs]
-
-                if U_gpu.shape == (2, 2) and len(global_qubits) == 1:
-                    apply_1q_gate_cupy_fallback(psi_gpu, U_gpu, global_qubits[0], num_qubits)
-                elif U_gpu.shape == (4, 4) and len(global_qubits) == 2:
-                    apply_2q_gate_cupy_fallback(psi_gpu, U_gpu, global_qubits[0], global_qubits[1], num_qubits)
-                else:
-                    logger.debug(
-                        f"[skip] unsupported gate {op.name} "
-                        f"shape={U_gpu.shape} on {len(global_qubits)} qubits"
-                    )
-                    continue
     
     psi_cpu = cp.asnumpy(psi_gpu)
     

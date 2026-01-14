@@ -45,6 +45,24 @@ __global__ void apply_diagonal_1q_gate_kernel(
     const int q
 );
 
+__global__ void permute_bits_kernel(
+    const cuDoubleComplex* __restrict__ in,
+    cuDoubleComplex* __restrict__ out,
+    const int* __restrict__ map_old_to_new,
+    int n,
+    unsigned long long dim
+);
+
+void launch_permute_bits(
+    const cuDoubleComplex* in,
+    cuDoubleComplex* out,
+    const int* d_map_old_to_new,
+    int n,
+    unsigned long long dim,
+    cudaStream_t stream = 0
+);
+
+
 // Host wrapper functions
 void launch_apply_1q_gate(
     cuDoubleComplex* psi,

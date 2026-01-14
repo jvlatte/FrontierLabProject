@@ -139,6 +139,42 @@ __global__ void apply_diagonal_1q_gate_kernel(
 // Host Wrapper Functions
 // ============================================================================
 
+__global__ void permute_bits_kernel(
+    const cuDoubleComplex* __restrict__ in,
+    cuDoubleComplex* __restrict__ out,
+    const int* __restrict__ map_old_to_new,
+    int n,
+    unsigned long long dim
+) {
+    unsigned long long i = (unsigned long long)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= dim) return;
+
+    unsigned long long j = 0ULL;
+    #pragma unroll
+    for (int p_old = 0; p_old < 64; ++p_old) { // safe upper bound
+        if (p_old >= n) break;
+        unsigned long long bit = (i >> p_old) & 1ULL;
+        j |= (bit << (unsigned long long)map_old_to_new[p_old]);
+    }
+
+    out[j] = in[i];
+}
+
+void launch_permute_bits(
+    const cuDoubleComplex* in,
+    cuDoubleComplex* out,
+    const int* d_map_old_to_new,
+    int n,
+    unsigned long long dim,
+    cudaStream_t stream
+) {
+    const int threads = 256;
+    const unsigned long long blocks = (dim + threads - 1ULL) / (unsigned long long)threads;
+    permute_bits_kernel<<<(unsigned int)blocks, threads>>>(in, out, d_map_old_to_new, n, dim);
+}
+
+
+
 void launch_apply_1q_gate(
     cuDoubleComplex* psi,
     const cuDoubleComplex* U,
