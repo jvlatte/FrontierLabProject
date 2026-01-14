@@ -127,21 +127,21 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         return float(kl)
         
 
-    # build CPU ref sim
+    # build CPU ref sim - always use baseline transpiler + aer backend as gold standard
     cpu_sim, cpu_device = create_simulator("cpu", combo["tasks"])
     for i in range(combo["repeats"]):
         # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
         # for i in range(args.repeats):
         ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
             sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True,
-            transpiler=combo["transpiler"], num_local_qubits=combo["nL"], backend="aer", device_used=cpu_device
+            transpiler="baseline", num_local_qubits=combo["nL"], backend="aer", device_used=cpu_device
             )
 
         # extract ref artifact
         ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
         ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
 
-        if csv_path:
+        if csv_path and combo["transpiler"] == "baseline" and combo["backend"] == "aer":
             cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes="reference")
             _inject_stats(cpu_row, ref_stats, ref_res)
             # correctness cols stay blank for ref
@@ -197,7 +197,10 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
 
 def main():
     # parameters to tweak
-
+    # Note: transpiler and backend are paired - only valid combinations are:
+    #   (baseline, aer) - standard Qiskit
+    #   (custom, custom) - tiled approach with custom backend
+    
     params = {
         "mode": ["compare"],
         "tasks": ["statevector"],
@@ -207,16 +210,25 @@ def main():
         "shots": [1024],
         "repeats": [5],
         "seed": [42],
-        "transpiler": ["baseline", "custom"],
-        "nL": [6, 8, 10, 12],
-        "backend": ["aer", "custom"]
+        "nL": [10],
     }
+    
+    # Valid (transpiler, backend) pairs
+    valid_transpiler_backend_pairs = [
+        ("baseline", "aer"),
+        ("custom", "custom"),
+    ]
 
-    keys = params.keys()
+    keys = list(params.keys())
     config_list = []
     for combination in product(*params.values()):
-        config = dict(zip(keys, combination))
-        config_list.append(config)
+        base_config = dict(zip(keys, combination))
+        # Add each valid transpiler/backend pair
+        for transpiler, backend in valid_transpiler_backend_pairs:
+            config = base_config.copy()
+            config["transpiler"] = transpiler
+            config["backend"] = backend
+            config_list.append(config)
 
     # print(config_list)
     # print(f"total number is {len(config_list)}")

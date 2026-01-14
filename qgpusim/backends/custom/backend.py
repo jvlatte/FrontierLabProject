@@ -1,10 +1,11 @@
+from platform import node
 from qiskit import QuantumCircuit
 from qgpusim.transpiler.passes import Tile
 from typing import List, Dict, Tuple, Optional
 from collections import OrderedDict
 import numpy as np
 import cupy as cp
-
+import time
 
 # LRU-bounded cache for gate matrices
 # (name, params) -> {"U_host": np.ndarray, "U_dev": cp.ndarray}
@@ -236,64 +237,87 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
     # Pre-build qubit index map (avoid repeated find_bit calls)
     qubit_map = {q: qc.find_bit(q).index for q in qc.qubits}
 
+    # extra metrics
+    t_start = time.perf_counter()
+
+    num_tiles = len(tile_plan)
+    num_reorders = 0
+    num_gates = 0
+
+    t_perm = 0.0
+    t_apply = 0.0
+
+
     # Use fully native Statevector class (gate-by-gate execution)
     if USE_NATIVE:
         sv = qgpusim_cuda.Statevector(num_qubits)
         print("Mode: Native pybind11 CUDA")
-        
         layout = list(range(num_qubits))
 
         for tile in tile_plan:
             if tile.layout != layout:
+                t0 = time.perf_counter()
                 sv.permute(layout, tile.layout)
+                sv.synchronize()
+                t_perm += time.perf_counter() - t0
+                num_reorders += 1
                 layout = tile.layout
 
+            t0 = time.perf_counter()
+            tile_ops = []
             for node in tile.gates:
                 op = node.op
                 if not hasattr(op, "to_matrix"):
                     continue
+                num_gates += 1
+
+                # U_dev = get_gate_matrix_dev(op, dtype=cp_dtype)
+                # U_host = get_gate_matrix_host(op, dtype=np_dtype)
 
                 U_dev = get_gate_matrix_dev(op, dtype=cp_dtype)
-                U_host = get_gate_matrix_host(op, dtype=np_dtype)
+                k = len(node.qargs)
+
 
                 global_qubits = [qubit_map[q] for q in node.qargs]
                 local_qubits = [tile.global_to_local_map[gq] for gq in global_qubits]
 
-                if U_host.shape == (2, 2) and len(local_qubits) == 1:
-                    sv.apply_1q_dev(local_qubits[0], U_dev)
-                elif U_host.shape == (4, 4) and len(local_qubits) == 2:
-                    sv.apply_2q_dev(local_qubits[0], local_qubits[1], U_dev)
+                if k == 1:
+                    tile_ops.append(("1q", local_qubits[0], U_dev))
+                elif k == 2:
+                    tile_ops.append(("2q", local_qubits[0], local_qubits[1], U_dev))
 
+                # if U_host.shape == (2, 2) and len(local_qubits) == 1:
+                #     # sv.apply_1q_dev(local_qubits[0], U_dev)
+                #     tile_ops.append(("1q", local_qubits[0], U_dev))
+                # elif U_host.shape == (4, 4) and len(local_qubits) == 2:
+                #     # sv.apply_2q_dev(local_qubits[0], local_qubits[1], U_dev)
+                #     tile_ops.append(("2q", local_qubits[0], local_qubits[1], U_dev))
 
-
-
-
-        # for tile in tile_plan:
-        #     for node in tile.gates:
-        #         op = node.op
-
-        #         if not hasattr(op, "to_matrix"):
-        #             continue
-
-        #         try:
-        #             U_dev = get_gate_matrix_dev(op, dtype=cp_dtype)
-        #             U_host = get_gate_matrix_host(op, dtype=np_dtype)
-        #         except Exception:
-        #             continue
-
-        #         qargs = node.qargs
-        #         global_qubits = [qubit_map[q] for q in qargs]
-
-        #         if U_host.shape == (2, 2) and len(global_qubits) == 1:
-        #             sv.apply_1q_dev(global_qubits[0], U_dev)
-        #         elif U_host.shape == (4, 4) and len(global_qubits) == 2:
-        #             sv.apply_2q_dev(global_qubits[0], global_qubits[1], U_dev)
+            if tile_ops:
+                sv.apply_tile_dev(tile_ops)
+                sv.synchronize()
+            t_apply += time.perf_counter() - t0
 
         print("Finished circuit execution using native CUDA module")
         result = sv.to_numpy()
         # Free GPU memory from statevector
         del sv
         cp.get_default_memory_pool().free_all_blocks()
+
+        t_total = time.perf_counter() - t_start
+        avg_tile_size = num_gates / max(1, num_tiles)
+
+        print("==== TILING METRICS ====")
+        print(f"num_qubits: {num_qubits}")
+        print(f"num_tiles: {num_tiles}")
+        print(f"num_gates: {num_gates}")
+        print(f"avg_tile_size: {avg_tile_size:.2f}")
+        print(f"num_reorders: {num_reorders}")
+        print(f"t_perm:  {t_perm:.6f} s ({(t_perm/t_total*100):.1f}%)")
+        print(f"t_apply: {t_apply:.6f} s ({(t_apply/t_total*100):.1f}%)")
+        print(f"t_total: {t_total:.6f} s")
+
+
         return result
 
     # Fallback: Use CuPy arrays with native kernel functions (if available) or pure CuPy

@@ -124,6 +124,130 @@ public:
         other.d_map_ = nullptr;
     }
 
+
+    // // Apply a whole tile described by a list of tuples:
+    // //  1Q: ("1q", q0, U_dev)
+    // //  2Q: ("2q", q0, q1, U_dev)
+    // // Optional (later): ("diag1q", q0, phase0, phase1)
+    // void apply_tile_dev(py::list ops) {
+    //     // Releasing the GIL helps if you’re calling this in tight loops
+    //     py::gil_scoped_release release;
+
+    //     const ssize_t nops = py::len(ops);
+
+    //     for (ssize_t i = 0; i < nops; ++i) {
+    //         py::handle h = ops[i];
+    //         py::tuple t = py::reinterpret_borrow<py::tuple>(h);
+    //         if (t.size() < 1) {
+    //             throw std::runtime_error("apply_tile_dev: empty tuple op descriptor");
+    //         }
+
+    //         // op type is a string: "1q" or "2q"
+    //         std::string kind = py::cast<std::string>(t[0]);
+
+    //         if (kind == "1q") {
+    //             // ("1q", q0, U_dev)
+    //             if (t.size() != 3) {
+    //                 throw std::runtime_error("apply_tile_dev: 1q expects ('1q', q0, U_dev)");
+    //             }
+    //             int q0 = py::cast<int>(t[1]);
+    //             py::object U_cupy = py::reinterpret_borrow<py::object>(t[2]);
+
+    //             if (q0 < 0 || q0 >= num_qubits_) throw std::runtime_error("apply_tile_dev: invalid q0");
+    //             cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
+    //             launch_apply_1q_gate(d_psi_, dU, num_qubits_, q0);
+    //             CUDA_CHECK_KERNEL();
+
+    //         } else if (kind == "2q") {
+    //             // ("2q", q0, q1, U_dev)
+    //             if (t.size() != 4) {
+    //                 throw std::runtime_error("apply_tile_dev: 2q expects ('2q', q0, q1, U_dev)");
+    //             }
+    //             int q0 = py::cast<int>(t[1]);
+    //             int q1 = py::cast<int>(t[2]);
+    //             py::object U_cupy = py::reinterpret_borrow<py::object>(t[3]);
+
+    //             if (q0 < 0 || q0 >= num_qubits_ || q1 < 0 || q1 >= num_qubits_)
+    //                 throw std::runtime_error("apply_tile_dev: invalid q0/q1");
+    //             if (q0 == q1) throw std::runtime_error("apply_tile_dev: q0 == q1");
+
+    //             cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
+    //             launch_apply_2q_gate(d_psi_, dU, num_qubits_, q0, q1);
+    //             CUDA_CHECK_KERNEL();
+
+    //         } else {
+    //             throw std::runtime_error("apply_tile_dev: unknown op kind: " + kind);
+    //         }
+    //     }
+    // }
+
+
+    struct TileOp {
+        int kind; // 1 = 1q, 2 = 2q
+        int q0;
+        int q1;
+        cuDoubleComplex* dU;
+    };
+
+    void apply_tile_dev(py::list ops) {
+        // ---- Phase 1: parse Python objects WITH the GIL held ----
+        const ssize_t nops = py::len(ops);
+        std::vector<TileOp> parsed;
+        parsed.reserve((size_t)nops);
+
+        for (ssize_t i = 0; i < nops; ++i) {
+            py::handle h = ops[i];
+
+            // accept tuple/list, but force tuple view
+            py::tuple t = py::reinterpret_borrow<py::tuple>(h);
+            if (t.size() < 1) {
+                throw std::runtime_error("apply_tile_dev: empty tuple op descriptor");
+            }
+
+            std::string kind = py::cast<std::string>(t[0]);
+
+            if (kind == "1q") {
+                if (t.size() != 3) throw std::runtime_error("apply_tile_dev: 1q expects ('1q', q0, U_dev)");
+                int q0 = py::cast<int>(t[1]);
+                py::object U_cupy = py::reinterpret_borrow<py::object>(t[2]);
+
+                if (q0 < 0 || q0 >= num_qubits_) throw std::runtime_error("apply_tile_dev: invalid q0");
+
+                cuDoubleComplex* dU = get_cupy_ptr(U_cupy); // safe: GIL held
+                parsed.push_back(TileOp{1, q0, -1, dU});
+
+            } else if (kind == "2q") {
+                if (t.size() != 4) throw std::runtime_error("apply_tile_dev: 2q expects ('2q', q0, q1, U_dev)");
+                int q0 = py::cast<int>(t[1]);
+                int q1 = py::cast<int>(t[2]);
+                py::object U_cupy = py::reinterpret_borrow<py::object>(t[3]);
+
+                if (q0 < 0 || q0 >= num_qubits_ || q1 < 0 || q1 >= num_qubits_)
+                    throw std::runtime_error("apply_tile_dev: invalid q0/q1");
+                if (q0 == q1) throw std::runtime_error("apply_tile_dev: q0 == q1");
+
+                cuDoubleComplex* dU = get_cupy_ptr(U_cupy); // safe: GIL held
+                parsed.push_back(TileOp{2, q0, q1, dU});
+
+            } else {
+                throw std::runtime_error("apply_tile_dev: unknown op kind: " + kind);
+            }
+        }
+
+        // ---- Phase 2: launch kernels WITHOUT holding the GIL ----
+        py::gil_scoped_release release;
+
+        for (const auto& op : parsed) {
+            if (op.kind == 1) {
+                launch_apply_1q_gate(d_psi_, op.dU, num_qubits_, op.q0);
+                CUDA_CHECK_KERNEL();
+            } else {
+                launch_apply_2q_gate(d_psi_, op.dU, num_qubits_, op.q0, op.q1);
+                CUDA_CHECK_KERNEL();
+            }
+        }
+    }
+
     void permute(py::list layout_old_py, py::list layout_new_py) {
         if ((int)py::len(layout_old_py) != num_qubits_ ||
             (int)py::len(layout_new_py) != num_qubits_) {
@@ -421,7 +545,12 @@ PYBIND11_MODULE(qgpusim_cuda, m) {
 
         .def("permute", &Statevector::permute,
             py::arg("layout_old"), py::arg("layout_new"),
-            "Permute qubit bit-positions by reindexing the statevector");
+            "Permute qubit bit-positions by reindexing the statevector")
+
+        .def("apply_tile_dev", &Statevector::apply_tile_dev,
+            py::arg("ops"),
+            "Apply a tile given a list of ops: ('1q', q0, U_dev) or ('2q', q0, q1, U_dev)");
+
 
 
     
