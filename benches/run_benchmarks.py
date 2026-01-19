@@ -17,57 +17,223 @@ from qgpusim.transpiler.pm import make_baseline_pm, make_custom_pm
 
 
 
-def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, args):
+# def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, args):
     # try gpu custom backend
+    # if combo["backend"] == "custom":
+    #     # TODO: ADD TO HERE
+    #     pass
+    # else:
+    #     # only cpu or gpu+cpu with aer backends
+    #     sim, device_used = create_simulator(combo["mode"], combo["tasks"])
+    # #device_used = "GPU" if (args.backend == "gpu") else "CPU"
+    # for i in range(combo["repeats"]):
+    #     trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=combo["tasks"], 
+    #                                                                    shots=combo["shots"], measure=True, 
+    #                                                                    transpiler=combo["transpiler"], num_local_qubits=combo["nL"],
+    #                                                                    backend=combo["backend"], device_used=device_used)
+    #     final_str = (
+    #     f"Run {i+1}/{combo['repeats']} on {combo['mode']} took {trans_elapsed:.4f} sec "
+    #     f"to transpile and {sim_elapsed:.4f} sec to simulate. "
+    #     f"Total: {(trans_elapsed + sim_elapsed):.4f}. "
+    #     # f"Extra: {extra}"
+    #     )
+    #     print(final_str)
+
+
+    #     if args.csv:
+    #         row = {
+    #             "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+    #             "host": env["host"],
+    #             "os": env["os"],
+    #             "python": env["python"],
+    #             "mode": combo["mode"],
+    #             "device": device_used,
+    #             "task": combo["tasks"],
+    #             "circuit": combo["circuit"],
+    #             "nqubits": combo["nqubits"],
+    #             "depth": combo["depth"],
+    #             "shots": combo["shots"] if combo["tasks"] == "sampling" else 0,
+    #             "repeat_idx": i + 1,
+    #             "transpile_s": f"{trans_elapsed:.6f}",
+    #             "simulate_s": f"{sim_elapsed:.6f}",
+    #             "total_s": f"{trans_elapsed + sim_elapsed:.6f}",
+    #              **{k: stats[k] for k in ["nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count"]},
+    #             "rss_mb": res_usage.get("rss_mb",""),
+    #             "gpu_mem_mb": res_usage.get("gpu_mem_mb",""),
+    #             "gpu_util": res_usage.get("gpu_util",""),
+    #             "notes": "",  # e.g., layout/method variants later
+    #             "transpiler": combo["transpiler"],
+    #             "nL": combo["nL"],
+    #             "backend": combo["backend"]
+    #         }
+    #         _append_csv(args.csv, row, fieldnames)
+
+
+def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, args):
+    """
+    GPU-only comparison:
+      - Reference: GPU + baseline transpiler + Aer backend
+      - Candidate: GPU + combo["transpiler"] + combo["backend"] (e.g., custom/custom)
+
+    Writes BOTH rows to CSV (if args.csv is set) and prints PASS info.
+    """
+
+    def _filtered(row: Dict[str, object]) -> Dict[str, object]:
+        return {k: v for k, v in row.items() if k in fieldnames}
+
+    def _row_base(mode: str, device: str, repeat_idx: int,
+                  t_trans: float, t_sim: float, notes: str = "") -> Dict[str, object]:
+        return {
+            "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+            "host": env.get("host", ""),
+            "os": env.get("os", ""),
+            "python": env.get("python", ""),
+            "mode": mode,                    # keep naming consistent with your CSV
+            "device": device,
+            "task": combo["tasks"],
+            "circuit": combo["circuit"],
+            "nqubits": combo["nqubits"],
+            "depth": combo["depth"],
+            "shots": combo["shots"] if combo["tasks"] == "sampling" else 0,
+            "repeat_idx": repeat_idx,
+            "transpile_s": f"{t_trans:.6f}",
+            "simulate_s": f"{t_sim:.6f}",
+            "total_s": f"{t_trans + t_sim:.6f}",
+            "notes": notes,
+            "transpiler": combo["transpiler"],
+            "nL": combo["nL"],
+            "backend": combo["backend"],
+        }
+
+    def _inject_stats(row: Dict[str, object], stats: Dict[str, object], res_usage: Dict[str, object]) -> None:
+        for k in ["nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count"]:
+            if k in fieldnames and stats is not None:
+                row[k] = stats.get(k, "")
+        if res_usage:
+            for k in ["rss_mb","gpu_mem_mb","gpu_util"]:
+                if k in fieldnames:
+                    row[k] = res_usage.get(k, "")
+
+    def _kl_div(counts_p: Dict[str, int], counts_q: Dict[str, int], eps: float = 1e-12) -> float:
+        keys = set(counts_p.keys()) | set(counts_q.keys())
+        sp = sum(counts_p.values()) or 1
+        sq = sum(counts_q.values()) or 1
+        k = len(keys) or 1
+        kl = 0.0
+        for key in keys:
+            p = (counts_p.get(key, 0) + eps) / (sp + eps * k)
+            q = (counts_q.get(key, 0) + eps) / (sq + eps * k)
+            kl += p * np.log(p / q)
+        return float(kl)
+
+    # ----------------------------
+    # 1) Build GPU reference sim
+    # ----------------------------
+    ref_sim, ref_device = create_simulator("gpu", combo["tasks"])
+    if "GPU" not in ref_device:
+        raise RuntimeError("GPU not present/available for reference run")
+
+    # ----------------------------
+    # 2) Build candidate sim
+    # ----------------------------
     if combo["backend"] == "custom":
-        # TODO: ADD TO HERE
-        pass
+        # HOOK: If your custom backend needs a different constructor, do it here.
+        # For example: sim = create_custom_simulator(tasks=combo["tasks"], **...)
+        sim, device_used = create_simulator("gpu", combo["tasks"])
+        # Or, if your create_simulator already branches on combo["backend"], replace with:
+        # sim, device_used = create_simulator("gpu", combo["tasks"], backend="custom")
+        device_used = device_used  # keep naming consistent
     else:
-        # only cpu or gpu+cpu with aer backends
-        sim, device_used = create_simulator(combo["mode"], combo["tasks"])
-    #device_used = "GPU" if (args.backend == "gpu") else "CPU"
+        # Candidate is still a GPU Aer run but maybe different transpiler etc.
+        sim, device_used = create_simulator("gpu", combo["tasks"])
+
+    if "GPU" not in device_used:
+        raise RuntimeError("GPU not present/available for candidate run")
+
+    # ----------------------------
+    # 3) Run repeats: ref then candidate, compare
+    # ----------------------------
     for i in range(combo["repeats"]):
-        trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=combo["tasks"], 
-                                                                       shots=combo["shots"], measure=True, 
-                                                                       transpiler=combo["transpiler"], num_local_qubits=combo["nL"],
-                                                                       backend=combo["backend"], device_used=device_used)
-        final_str = (
-        f"Run {i+1}/{combo['repeats']} on {combo['mode']} took {trans_elapsed:.4f} sec "
-        f"to transpile and {sim_elapsed:.4f} sec to simulate. "
-        f"Total: {(trans_elapsed + sim_elapsed):.4f}. "
-        # f"Extra: {extra}"
+        # ---- Reference run (GPU baseline + Aer) ----
+        ref_trans_s, ref_sim_s, ref_extra, ref_stats, ref_res = run_once(
+            sim=ref_sim,
+            qc=qc,
+            task=combo["tasks"],
+            shots=combo["shots"],
+            measure=True,
+            transpiler="baseline",
+            num_local_qubits=combo["nL"],
+            backend="aer",
+            device_used=ref_device,
         )
-        print(final_str)
 
+        ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
+        ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
 
+        # write reference row once per repeat (matches your current compare_both_backends behavior)
         if args.csv:
-            row = {
-                "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
-                "host": env["host"],
-                "os": env["os"],
-                "python": env["python"],
-                "mode": combo["mode"],
-                "device": device_used,
-                "task": combo["tasks"],
-                "circuit": combo["circuit"],
-                "nqubits": combo["nqubits"],
-                "depth": combo["depth"],
-                "shots": combo["shots"] if combo["tasks"] == "sampling" else 0,
-                "repeat_idx": i + 1,
-                "transpile_s": f"{trans_elapsed:.6f}",
-                "simulate_s": f"{sim_elapsed:.6f}",
-                "total_s": f"{trans_elapsed + sim_elapsed:.6f}",
-                 **{k: stats[k] for k in ["nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count"]},
-                "rss_mb": res_usage.get("rss_mb",""),
-                "gpu_mem_mb": res_usage.get("gpu_mem_mb",""),
-                "gpu_util": res_usage.get("gpu_util",""),
-                "notes": "",  # e.g., layout/method variants later
-                "transpiler": combo["transpiler"],
-                "nL": combo["nL"],
-                "backend": combo["backend"]
-            }
-            _append_csv(args.csv, row, fieldnames)
+            ref_row = _row_base("gpu_ref", ref_device, 0, ref_trans_s, ref_sim_s, notes="reference")
+            # override these so the CSV clearly shows what the reference actually used
+            if "transpiler" in ref_row: ref_row["transpiler"] = "baseline"
+            if "backend" in ref_row:    ref_row["backend"] = "aer"
+            _inject_stats(ref_row, ref_stats, ref_res)
+            _append_csv(args.csv, _filtered(ref_row), fieldnames)
 
+        # ---- Candidate run (GPU custom/custom or whatever combo says) ----
+        trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(
+            sim=sim,
+            qc=qc,
+            task=combo["tasks"],
+            shots=combo["shots"],
+            measure=True,
+            transpiler=combo["transpiler"],
+            num_local_qubits=combo["nL"],
+            backend=combo["backend"],
+            device_used=device_used,
+        )
+        total_s = trans_elapsed + sim_elapsed
+
+        # ---- Correctness compare + print ----
+        note = ""
+        if combo["tasks"] == "statevector":
+            cand_sv = extra.get("statevector")
+            ov, l2 = statevector_overlap(ref_sv, cand_sv)
+            passed = (ov > 1 - 1e-9)
+            print(
+                f"[GPU ref=aer/baseline vs cand={combo['backend']}/{combo['transpiler']}] "
+                f"rep {i+1}/{combo['repeats']} | overlap={ov:.12f} l2={l2:.3e} "
+                f"| t_transpile={trans_elapsed:.4f}s t_sim={sim_elapsed:.4f}s total={total_s:.4f}s PASS={passed}"
+            )
+            note = f"overlap={ov:.12f}; l2={l2:.3e}; pass={passed}"
+        else:
+            cand_counts = extra.get("counts", {})
+            tvd = total_variation_distance(ref_counts, cand_counts)
+            passed = (tvd < 0.02)
+            kl = _kl_div(ref_counts, cand_counts) if "kl_div" in fieldnames else None
+            print(
+                f"[GPU ref=aer/baseline vs cand={combo['backend']}/{combo['transpiler']}] "
+                f"rep {i+1}/{combo['repeats']} | TVD={tvd:.6f}"
+                + (f" KL={kl:.6f}" if kl is not None else "")
+                + f" | t_transpile={trans_elapsed:.4f}s t_sim={sim_elapsed:.4f}s total={total_s:.4f}s PASS={passed}"
+            )
+            note = f"TVD={tvd:.6f}; " + (f"KL={kl:.6f}; " if kl is not None else "") + f"pass={passed}"
+
+        # ---- Candidate CSV row ----
+        if args.csv:
+            row = _row_base("gpu", device_used, i + 1, trans_elapsed, sim_elapsed, notes=note)
+            _inject_stats(row, stats, res_usage)
+
+            # correctness columns (only if present)
+            if combo["tasks"] == "statevector":
+                if "overlap" in fieldnames: row["overlap"] = f"{ov:.12f}"
+                if "l2" in fieldnames:      row["l2"]      = f"{l2:.3e}"
+                if "passed" in fieldnames:  row["passed"]  = str(passed)
+            else:
+                if "tvd" in fieldnames:     row["tvd"]     = f"{tvd:.6f}"
+                if kl is not None:          row["kl_div"]  = f"{kl:.6f}"
+                if "passed" in fieldnames:  row["passed"]  = str(passed)
+
+            _append_csv(args.csv, _filtered(row), fieldnames)
 
 
 def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str], csv_path: Optional[str]):
@@ -202,18 +368,18 @@ def main():
     #   (custom, custom) - tiled approach with custom backend
     
     params = {
-        "mode": ["compare"],
+        "mode": ["gpu"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [25],
+        "nqubits": [30],
         "depth": [16],
         "shots": [1024],
-        "repeats": [5],
+        "repeats": [3],
         "seed": [42],
         "nL": [10],
     }
     
-    # Valid (transpiler, backend) pairs
+    # # Valid (transpiler, backend) pairs
     valid_transpiler_backend_pairs = [
         ("baseline", "aer"),
         ("custom", "custom"),

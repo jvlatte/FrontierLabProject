@@ -215,7 +215,7 @@ def apply_2q_gate_cupy_fallback(
     del base, i00, i01, i10, i11, v00, v01, v10, v11
 
 
-def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None, use_float32: bool=False):
+def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None, use_float32: bool=False, use_cuda_graphs: bool=True):
     """Run quantum circuit simulation on custom GPU backend.
     
     Args:
@@ -225,6 +225,8 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
         shots: Number of measurement shots (optional)
         use_float32: If True, use complex64 (float32) for ~2x memory savings.
                      Default False uses complex128 (float64) for higher precision.
+        use_cuda_graphs: If True, use CUDA Graphs for true tile-by-tile execution.
+                         This reduces kernel launch overhead. Default True.
     """
     print("Running custom GPU backend")
     num_qubits = qc.num_qubits
@@ -233,6 +235,7 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
     cp_dtype = cp.complex64 if use_float32 else cp.complex128
     np_dtype = np.complex64 if use_float32 else np.complex128
     print(f"Precision: {'complex64' if use_float32 else 'complex128'}")
+    print(f"Tile execution mode: {'CUDA Graphs (true tile-by-tile)' if use_cuda_graphs else 'Gate-by-gate'}")
 
     # Pre-build qubit index map (avoid repeated find_bit calls)
     qubit_map = {q: qc.find_bit(q).index for q in qc.qubits}
@@ -294,7 +297,12 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                 #     tile_ops.append(("2q", local_qubits[0], local_qubits[1], U_dev))
 
             if tile_ops:
-                sv.apply_tile_dev(tile_ops)
+                # Use CUDA Graphs for true tile-by-tile execution (single launch per tile)
+                # or fall back to gate-by-gate execution
+                if use_cuda_graphs:
+                    sv.apply_tile_graphed(tile_ops)
+                else:
+                    sv.apply_tile_dev(tile_ops)
                 sv.synchronize()
             t_apply += time.perf_counter() - t0
 

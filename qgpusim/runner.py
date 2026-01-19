@@ -71,7 +71,7 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
                 raise ValueError("backend='custom' requires transpiler='custom' and tiling_plan")
 
             simulate_t0 = time.perf_counter()
-            psi = run_custom_backend(tqc, tiling_plan, task, shots)
+            psi = run_custom_backend(tqc, tiling_plan, task, shots, use_cuda_graphs=True)
             # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
             result = None  # placeholder
             # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
@@ -92,14 +92,17 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
         extra = {}
         if task == "statevector":
             if backend == "custom":
-                extra["statevector"] = [complex(a) for a in psi]
+                # Keep as numpy array - avoid slow Python list conversion
+                extra["statevector"] = psi
     else:
         if task == "statevector":
             vec = result.get_statevector(tqc)
             try:
                 from qiskit.quantum_info import Statevector
+                import numpy as np
                 sv = Statevector(vec)
-                extra = {"statevector": [complex(a) for a in sv.data]}
+                # Keep as numpy array - avoid slow Python list conversion
+                extra = {"statevector": np.asarray(sv.data, dtype=np.complex128)}
             except Exception:
                 extra = {"statevector": None}
         else:

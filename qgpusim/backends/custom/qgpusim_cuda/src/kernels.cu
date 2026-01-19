@@ -170,7 +170,11 @@ void launch_permute_bits(
 ) {
     const int threads = 256;
     const unsigned long long blocks = (dim + threads - 1ULL) / (unsigned long long)threads;
-    permute_bits_kernel<<<(unsigned int)blocks, threads>>>(in, out, d_map_old_to_new, n, dim);
+    // permute_bits_kernel<<<(unsigned int)blocks, threads>>>(in, out, d_map_old_to_new, n, dim);
+    permute_bits_kernel<<<(unsigned int)blocks, threads, 0, stream>>>(
+    in, out, d_map_old_to_new, n, dim
+);
+
 }
 
 

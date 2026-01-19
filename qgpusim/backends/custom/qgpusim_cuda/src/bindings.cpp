@@ -107,6 +107,7 @@ public:
 
         if (d_tmp_) cudaFree(d_tmp_);
         if (d_map_) cudaFree(d_map_);
+        if (tile_stream_) cudaStreamDestroy(tile_stream_);
     }
     
     // Disable copy
@@ -117,11 +118,13 @@ public:
     Statevector(Statevector&& other) noexcept 
         : d_psi_(other.d_psi_), d_U_(other.d_U_), 
           d_tmp_(other.d_tmp_), d_map_(other.d_map_),
+          tile_stream_(other.tile_stream_),
           num_qubits_(other.num_qubits_), dim_(other.dim_) {
         other.d_psi_ = nullptr;
         other.d_U_ = nullptr;
         other.d_tmp_ = nullptr;
         other.d_map_ = nullptr;
+        other.tile_stream_ = nullptr;
     }
 
 
@@ -189,8 +192,117 @@ public:
         cuDoubleComplex* dU;
     };
 
+    // Stream for tile operations
+    cudaStream_t tile_stream_ = nullptr;
+    
+    cudaStream_t get_tile_stream() {
+        if (!tile_stream_) {
+            CUDA_CHECK(cudaStreamCreate(&tile_stream_));
+        }
+        return tile_stream_;
+    }
+
+    // Parse tile operations from Python list (GIL must be held)
+    std::vector<TileOp> parse_tile_ops(py::list ops) {
+        const ssize_t nops = py::len(ops);
+        std::vector<TileOp> parsed;
+        parsed.reserve((size_t)nops);
+
+        for (ssize_t i = 0; i < nops; ++i) {
+            py::handle h = ops[i];
+            py::tuple t = py::reinterpret_borrow<py::tuple>(h);
+            if (t.size() < 1) {
+                throw std::runtime_error("apply_tile_dev: empty tuple op descriptor");
+            }
+
+            std::string kind = py::cast<std::string>(t[0]);
+
+            if (kind == "1q") {
+                if (t.size() != 3) throw std::runtime_error("apply_tile_dev: 1q expects ('1q', q0, U_dev)");
+                int q0 = py::cast<int>(t[1]);
+                py::object U_cupy = py::reinterpret_borrow<py::object>(t[2]);
+                if (q0 < 0 || q0 >= num_qubits_) throw std::runtime_error("apply_tile_dev: invalid q0");
+                cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
+                parsed.push_back(TileOp{1, q0, -1, dU});
+
+            } else if (kind == "2q") {
+                if (t.size() != 4) throw std::runtime_error("apply_tile_dev: 2q expects ('2q', q0, q1, U_dev)");
+                int q0 = py::cast<int>(t[1]);
+                int q1 = py::cast<int>(t[2]);
+                py::object U_cupy = py::reinterpret_borrow<py::object>(t[3]);
+                if (q0 < 0 || q0 >= num_qubits_ || q1 < 0 || q1 >= num_qubits_)
+                    throw std::runtime_error("apply_tile_dev: invalid q0/q1");
+                if (q0 == q1) throw std::runtime_error("apply_tile_dev: q0 == q1");
+                cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
+                parsed.push_back(TileOp{2, q0, q1, dU});
+
+            } else {
+                throw std::runtime_error("apply_tile_dev: unknown op kind: " + kind);
+            }
+        }
+        return parsed;
+    }
+
+    // Original gate-by-gate execution (kept for compatibility)
     void apply_tile_dev(py::list ops) {
         // ---- Phase 1: parse Python objects WITH the GIL held ----
+        std::vector<TileOp> parsed = parse_tile_ops(ops);
+
+        // ---- Phase 2: launch kernels WITHOUT holding the GIL ----
+        py::gil_scoped_release release;
+        cudaStream_t stream = get_tile_stream();
+
+        for (const auto& op : parsed) {
+            if (op.kind == 1) {
+                launch_apply_1q_gate(d_psi_, op.dU, num_qubits_, op.q0, stream);
+                CUDA_CHECK_KERNEL();
+            } else {
+                launch_apply_2q_gate(d_psi_, op.dU, num_qubits_, op.q0, op.q1, stream);
+                CUDA_CHECK_KERNEL();
+            }
+        }
+    }
+
+    // TRUE TILE-BY-TILE: CUDA Graph-based execution
+    // Captures all kernel launches into a graph, executes as single unit
+    void apply_tile_graphed(py::list ops) {
+        // ---- Phase 1: parse Python objects WITH the GIL held ----
+        std::vector<TileOp> parsed = parse_tile_ops(ops);
+        
+        if (parsed.empty()) return;
+
+        // ---- Phase 2: capture and execute CUDA graph WITHOUT GIL ----
+        py::gil_scoped_release release;
+        
+        cudaStream_t stream = get_tile_stream();
+        cudaGraph_t graph;
+        cudaGraphExec_t graphExec;
+
+        // Begin capturing kernel launches into a graph
+        CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+
+        for (const auto& op : parsed) {
+            if (op.kind == 1) {
+                launch_apply_1q_gate(d_psi_, op.dU, num_qubits_, op.q0, stream);
+            } else {
+                launch_apply_2q_gate(d_psi_, op.dU, num_qubits_, op.q0, op.q1, stream);
+            }
+        }
+
+        // End capture and instantiate the graph
+        CUDA_CHECK(cudaStreamEndCapture(stream, &graph));
+        CUDA_CHECK(cudaGraphInstantiate(&graphExec, graph, NULL, NULL, 0));
+
+        // Execute entire tile as a single graph launch (TRUE tile-by-tile!)
+        CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
+
+        // Cleanup graph objects (stream sync happens in synchronize())
+        CUDA_CHECK(cudaGraphExecDestroy(graphExec));
+        CUDA_CHECK(cudaGraphDestroy(graph));
+    }
+
+    // Legacy parsing code below for reference (now unified in parse_tile_ops)
+    void apply_tile_dev_legacy(py::list ops) {
         const ssize_t nops = py::len(ops);
         std::vector<TileOp> parsed;
         parsed.reserve((size_t)nops);
@@ -549,7 +661,11 @@ PYBIND11_MODULE(qgpusim_cuda, m) {
 
         .def("apply_tile_dev", &Statevector::apply_tile_dev,
             py::arg("ops"),
-            "Apply a tile given a list of ops: ('1q', q0, U_dev) or ('2q', q0, q1, U_dev)");
+            "Apply a tile given a list of ops: ('1q', q0, U_dev) or ('2q', q0, q1, U_dev)")
+        
+        .def("apply_tile_graphed", &Statevector::apply_tile_graphed,
+            py::arg("ops"),
+            "Apply a tile using CUDA Graphs for true tile-by-tile execution (reduced kernel launch overhead)");
 
 
 
