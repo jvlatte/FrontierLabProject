@@ -39,7 +39,8 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
         else:
             print("running through baseline transpiler")
             # baseline: regular qiskit transpile
-            tqc = transpile(qc_sv, sim)
+            # tqc = transpile(qc_sv, sim, optimization_level=0,)
+            tqc = qc_sv
     else:
         if transpiler == "custom":
             pm, lqr_pass = make_custom_pm(num_local_qubits)
@@ -71,7 +72,7 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
                 raise ValueError("backend='custom' requires transpiler='custom' and tiling_plan")
 
             simulate_t0 = time.perf_counter()
-            psi = run_custom_backend(tqc, tiling_plan, task, shots, use_cuda_graphs=True)
+            psi = run_custom_backend(tqc, tiling_plan, task, shots, tile_mode="graphed", use_float32=False, enable_fusion=True)
             # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
             result = None  # placeholder
             # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()

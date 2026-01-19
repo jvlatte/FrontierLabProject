@@ -3,6 +3,16 @@
 
 #include <cuComplex.h>
 #include <cuda_runtime.h>
+#include <cooperative_groups.h>
+
+// Structure to represent a single gate operation in a tile
+struct TileGateOp {
+    int kind;           // 1 = 1-qubit gate, 2 = 2-qubit gate
+    int q0;             // First qubit index
+    int q1;             // Second qubit index (only for 2Q gates)
+    int needs_sync;     // 1 = sync after this gate, 0 = no sync needed
+    cuDoubleComplex* U; // Pointer to gate matrix on device (4 or 16 elements)
+};
 
 // Apply a 1-qubit gate to a statevector (optimized with shared memory)
 // psi: statevector of length 2^n
@@ -89,5 +99,30 @@ void launch_apply_diagonal_1q_gate(
     int target_qubit,
     cudaStream_t stream = 0
 );
+
+// ============================================================================
+// TRUE TILE KERNEL - Executes all gates in a tile in a SINGLE kernel launch
+// Uses cooperative groups for grid-wide synchronization between gates
+// ============================================================================
+
+// The actual tile kernel (uses cooperative groups)
+__global__ void apply_tile_kernel(
+    cuDoubleComplex* __restrict__ psi,
+    const TileGateOp* __restrict__ ops,
+    const int num_ops,
+    const long long num_qubits
+);
+
+// Host wrapper that launches the tile kernel cooperatively
+void launch_apply_tile(
+    cuDoubleComplex* psi,
+    const TileGateOp* d_ops,
+    int num_ops,
+    long long num_qubits,
+    cudaStream_t stream = 0
+);
+
+// Query maximum number of blocks for cooperative launch
+int get_tile_kernel_max_blocks(int threads_per_block);
 
 #endif // QGPUSIM_KERNELS_CUH

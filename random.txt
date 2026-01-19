@@ -1,53 +1,53 @@
-=== nL = 2 ===
-num_tiles      = 6
-avg_tile_size  = 1.17
-max_tile_size  = 2
-avg |Q_L|      = 1.67
-max |Q_L|      = 2
-  Tile 0: QL=[0, 1], gates=2
-    0: h on [0]
-    1: cx on [0, 1]
-  Tile 1: QL=[1, 2], gates=1
-    0: cx on [1, 2]
-  Tile 2: QL=[2, 3], gates=1
-    0: cx on [2, 3]
-  Tile 3: QL=[], gates=1
-    0: barrier on [0, 1, 2, 3]
-  Tile 4: QL=[0, 2], gates=1
-    0: cx on [0, 2]
-  Tile 5: QL=[1, 3], gates=1
-    0: cx on [1, 3]
-
-=== nL = 3 ===
-num_tiles      = 5
-avg_tile_size  = 1.40
-max_tile_size  = 3
-avg |Q_L|      = 2.40
-max |Q_L|      = 3
-  Tile 0: QL=[0, 1, 2], gates=3
-    0: h on [0]
-    1: cx on [0, 1]
-    2: cx on [1, 2]
-  Tile 1: QL=[0, 2, 3], gates=1
-    0: cx on [2, 3]
-  Tile 2: QL=[], gates=1
-    0: barrier on [0, 1, 2, 3]
-  Tile 3: QL=[0, 1, 2], gates=1
-    0: cx on [0, 2]
-  Tile 4: QL=[0, 1, 3], gates=1
-    0: cx on [1, 3]
-
-=== nL = 4 ===
-num_tiles      = 1
-avg_tile_size  = 7.00
-max_tile_size  = 7
-avg |Q_L|      = 4.00
-max |Q_L|      = 4
-  Tile 0: QL=[0, 1, 2, 3], gates=7
-    0: h on [0]
-    1: cx on [0, 1]
-    2: cx on [1, 2]
-    3: cx on [2, 3]
-    4: barrier on [0, 1, 2, 3]
-    5: cx on [0, 2]
-    6: cx on [1, 3]
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel
+ACTUALLY Applied tile using cooperative kernel

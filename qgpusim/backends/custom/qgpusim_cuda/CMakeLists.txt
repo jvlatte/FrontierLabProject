@@ -66,6 +66,7 @@ target_compile_options(qgpusim_cuda PRIVATE
 # Set the output name and install location
 set_target_properties(qgpusim_cuda PROPERTIES
     POSITION_INDEPENDENT_CODE ON
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../native
 )
 
 # Install the module to the native subdirectory

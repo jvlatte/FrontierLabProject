@@ -250,8 +250,23 @@ class LazyQubitReordering(TransformationPass):
 
             # Safety: avoid infinite loop if TILECONSTRUCTION somehow
             # returns empty even though Cremain is non-empty.
+            # This can happen with long-range gates whose targets span
+            # more qubits than the current tile.
             if not G:
-                G = [Cremain[0]]
+                # Force the first remaining gate into its own tile.
+                # Update Q_L to include all qubits this gate needs.
+                forced_gate = Cremain[0]
+                gate_qubits = T_map[forced_gate]
+                # Build a new Q_L that includes this gate's qubits
+                QL = set(gate_qubits)
+                # Fill remaining slots with lowest available qubits
+                if len(QL) < nL:
+                    remaining = sorted(Q - QL)
+                    for q in remaining:
+                        if len(QL) >= nL:
+                            break
+                        QL.add(q)
+                G = [forced_gate]
 
             # 7–11: for every gate in the tile
             for gate in G:

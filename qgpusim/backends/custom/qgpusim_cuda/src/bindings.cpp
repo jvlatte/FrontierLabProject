@@ -107,6 +107,9 @@ public:
 
         if (d_tmp_) cudaFree(d_tmp_);
         if (d_map_) cudaFree(d_map_);
+        if (d_tile_ops_) cudaFree(d_tile_ops_);
+        if (cached_graph_exec_) cudaGraphExecDestroy(cached_graph_exec_);
+        if (cached_graph_) cudaGraphDestroy(cached_graph_);
         if (tile_stream_) cudaStreamDestroy(tile_stream_);
     }
     
@@ -118,12 +121,15 @@ public:
     Statevector(Statevector&& other) noexcept 
         : d_psi_(other.d_psi_), d_U_(other.d_U_), 
           d_tmp_(other.d_tmp_), d_map_(other.d_map_),
+          d_tile_ops_(other.d_tile_ops_), tile_ops_capacity_(other.tile_ops_capacity_),
           tile_stream_(other.tile_stream_),
           num_qubits_(other.num_qubits_), dim_(other.dim_) {
         other.d_psi_ = nullptr;
         other.d_U_ = nullptr;
         other.d_tmp_ = nullptr;
         other.d_map_ = nullptr;
+        other.d_tile_ops_ = nullptr;
+        other.tile_ops_capacity_ = 0;
         other.tile_stream_ = nullptr;
     }
 
@@ -195,11 +201,31 @@ public:
     // Stream for tile operations
     cudaStream_t tile_stream_ = nullptr;
     
+    // Graph caching for optimized CUDA Graphs
+    cudaGraph_t cached_graph_ = nullptr;
+    cudaGraphExec_t cached_graph_exec_ = nullptr;
+    std::vector<cudaGraphNode_t> cached_kernel_nodes_;
+    std::vector<TileOp> cached_tile_signature_;  // signature of cached graph
+    
     cudaStream_t get_tile_stream() {
         if (!tile_stream_) {
             CUDA_CHECK(cudaStreamCreate(&tile_stream_));
         }
         return tile_stream_;
+    }
+    
+    // Check if current ops match cached graph signature (same structure)
+    bool matches_cached_signature(const std::vector<TileOp>& ops) {
+        if (ops.size() != cached_tile_signature_.size()) return false;
+        for (size_t i = 0; i < ops.size(); ++i) {
+            // Must have same gate types and qubits (only matrix pointers can differ)
+            if (ops[i].kind != cached_tile_signature_[i].kind ||
+                ops[i].q0 != cached_tile_signature_[i].q0 ||
+                ops[i].q1 != cached_tile_signature_[i].q1) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Parse tile operations from Python list (GIL must be held)
@@ -263,20 +289,52 @@ public:
         }
     }
 
-    // TRUE TILE-BY-TILE: CUDA Graph-based execution
-    // Captures all kernel launches into a graph, executes as single unit
+    // OPTIMIZED CUDA Graph-based execution with caching
+    // Reuses graph structure when tile signatures match, only updating kernel params
     void apply_tile_graphed(py::list ops) {
         // ---- Phase 1: parse Python objects WITH the GIL held ----
         std::vector<TileOp> parsed = parse_tile_ops(ops);
         
         if (parsed.empty()) return;
 
-        // ---- Phase 2: capture and execute CUDA graph WITHOUT GIL ----
+        // ---- Phase 2: execute CUDA graph WITHOUT GIL ----
         py::gil_scoped_release release;
         
         cudaStream_t stream = get_tile_stream();
-        cudaGraph_t graph;
-        cudaGraphExec_t graphExec;
+
+        // Check if we can reuse the cached graph (same tile structure)
+        // This avoids expensive graph creation/destruction
+        if (cached_graph_exec_ && matches_cached_signature(parsed)) {
+            // Fast path: just update kernel node parameters and relaunch
+            // The kernel pointers (dU) may have changed, but structure is same
+            // Unfortunately cudaGraphExecKernelNodeSetParams requires knowing
+            // the exact kernel params, which is complex. For now, invalidate cache
+            // if any dU pointer changed.
+            bool can_reuse = true;
+            for (size_t i = 0; i < parsed.size() && can_reuse; ++i) {
+                if (parsed[i].dU != cached_tile_signature_[i].dU) {
+                    can_reuse = false;
+                }
+            }
+            
+            if (can_reuse) {
+                // Perfect match - just relaunch the cached graph!
+                CUDA_CHECK(cudaGraphLaunch(cached_graph_exec_, stream));
+                return;
+            }
+        }
+        
+        // Slow path: need to create new graph
+        // Clean up old cached graph if exists
+        if (cached_graph_exec_) {
+            cudaGraphExecDestroy(cached_graph_exec_);
+            cached_graph_exec_ = nullptr;
+        }
+        if (cached_graph_) {
+            cudaGraphDestroy(cached_graph_);
+            cached_graph_ = nullptr;
+        }
+        cached_kernel_nodes_.clear();
 
         // Begin capturing kernel launches into a graph
         CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
@@ -290,15 +348,81 @@ public:
         }
 
         // End capture and instantiate the graph
-        CUDA_CHECK(cudaStreamEndCapture(stream, &graph));
-        CUDA_CHECK(cudaGraphInstantiate(&graphExec, graph, NULL, NULL, 0));
+        CUDA_CHECK(cudaStreamEndCapture(stream, &cached_graph_));
+        CUDA_CHECK(cudaGraphInstantiate(&cached_graph_exec_, cached_graph_, NULL, NULL, 0));
 
-        // Execute entire tile as a single graph launch (TRUE tile-by-tile!)
-        CUDA_CHECK(cudaGraphLaunch(graphExec, stream));
+        // Execute the graph
+        CUDA_CHECK(cudaGraphLaunch(cached_graph_exec_, stream));
+        
+        // Save signature for future cache hits
+        cached_tile_signature_ = parsed;
+    }
 
-        // Cleanup graph objects (stream sync happens in synchronize())
-        CUDA_CHECK(cudaGraphExecDestroy(graphExec));
-        CUDA_CHECK(cudaGraphDestroy(graph));
+    // ========================================================================
+    // TRUE TILE KERNEL - Single cooperative kernel processes ALL gates in tile
+    // Optimized: only syncs when consecutive gates have overlapping qubits
+    // ========================================================================
+    void apply_tile_cooperative(py::list ops) {
+        // ---- Phase 1: parse Python objects WITH the GIL held ----
+        std::vector<TileOp> parsed = parse_tile_ops(ops);
+        
+        if (parsed.empty()) return;
+
+        // Build array of TileGateOp structs for the kernel
+        // Compute needs_sync: only sync if next gate shares a qubit with current gate
+        std::vector<TileGateOp> kernel_ops(parsed.size());
+        for (size_t i = 0; i < parsed.size(); ++i) {
+            kernel_ops[i].kind = parsed[i].kind;
+            kernel_ops[i].q0 = parsed[i].q0;
+            kernel_ops[i].q1 = parsed[i].q1;
+            kernel_ops[i].U = parsed[i].dU;
+            
+            // Compute needs_sync: check if this gate's qubits overlap with next gate
+            if (i + 1 < parsed.size()) {
+                const TileOp& curr = parsed[i];
+                const TileOp& next = parsed[i + 1];
+                
+                // Get qubits used by current gate
+                int curr_q0 = curr.q0;
+                int curr_q1 = (curr.kind == 2) ? curr.q1 : -1;
+                
+                // Get qubits used by next gate
+                int next_q0 = next.q0;
+                int next_q1 = (next.kind == 2) ? next.q1 : -1;
+                
+                // Check for overlap
+                bool overlap = (curr_q0 == next_q0) || (curr_q0 == next_q1) ||
+                               (curr_q1 >= 0 && (curr_q1 == next_q0 || curr_q1 == next_q1));
+                
+                kernel_ops[i].needs_sync = overlap ? 1 : 0;
+            } else {
+                // Last gate: no sync needed after it
+                kernel_ops[i].needs_sync = 0;
+            }
+        }
+
+        // ---- Phase 2: copy ops to device and launch cooperative kernel ----
+        py::gil_scoped_release release;
+        
+        // Ensure device buffer is large enough
+        size_t needed_size = kernel_ops.size();
+        if (needed_size > tile_ops_capacity_) {
+            if (d_tile_ops_) cudaFree(d_tile_ops_);
+            // Allocate with some headroom
+            tile_ops_capacity_ = needed_size * 2;
+            CUDA_CHECK(cudaMalloc(&d_tile_ops_, tile_ops_capacity_ * sizeof(TileGateOp)));
+        }
+
+        // Copy operations to device
+        CUDA_CHECK(cudaMemcpy(d_tile_ops_, kernel_ops.data(), 
+                              kernel_ops.size() * sizeof(TileGateOp),
+                              cudaMemcpyHostToDevice));
+
+        cudaStream_t stream = get_tile_stream();
+        
+        // Launch the cooperative tile kernel (single kernel for ALL gates!)
+        launch_apply_tile(d_psi_, d_tile_ops_, (int)kernel_ops.size(), num_qubits_, stream);
+        CUDA_CHECK_KERNEL();
     }
 
     // Legacy parsing code below for reference (now unified in parse_tile_ops)
@@ -392,17 +516,35 @@ public:
             map_old_to_new[p_old] = p_new;
         }
 
-        // Copy map to device
-        CUDA_CHECK(cudaMemcpy(d_map_, map_old_to_new.data(),
+        cudaStream_t stream = get_tile_stream();
+        
+        // Copy map to device (async on the stream)
+        CUDA_CHECK(cudaMemcpyAsync(d_map_, map_old_to_new.data(),
                             num_qubits_ * sizeof(int),
-                            cudaMemcpyHostToDevice));
+                            cudaMemcpyHostToDevice, stream));
 
         // Launch permute: d_tmp_[j] = d_psi_[i]
-        launch_permute_bits(d_psi_, d_tmp_, d_map_, num_qubits_, dim_);
+        launch_permute_bits(d_psi_, d_tmp_, d_map_, num_qubits_, dim_, stream);
         CUDA_CHECK_KERNEL();
 
         // Swap buffers (now d_psi_ contains permuted state)
         std::swap(d_psi_, d_tmp_);
+        
+        // CRITICAL: Invalidate cached CUDA graph since d_psi_ pointer has changed!
+        // The cached graph has kernels pointing to the old d_psi_ (now d_tmp_).
+        invalidate_cached_graph();
+    }
+    
+    void invalidate_cached_graph() {
+        if (cached_graph_exec_) {
+            cudaGraphExecDestroy(cached_graph_exec_);
+            cached_graph_exec_ = nullptr;
+        }
+        if (cached_graph_) {
+            cudaGraphDestroy(cached_graph_);
+            cached_graph_ = nullptr;
+        }
+        cached_tile_signature_.clear();
     }
 
     
@@ -540,6 +682,10 @@ private:
     size_t dim_;
     cuDoubleComplex* d_tmp_ = nullptr;
     int* d_map_ = nullptr;
+    
+    // Tile kernel support
+    TileGateOp* d_tile_ops_ = nullptr;  // Device buffer for tile operations
+    size_t tile_ops_capacity_ = 0;      // Current capacity of d_tile_ops_
 
 };
 
@@ -665,7 +811,11 @@ PYBIND11_MODULE(qgpusim_cuda, m) {
         
         .def("apply_tile_graphed", &Statevector::apply_tile_graphed,
             py::arg("ops"),
-            "Apply a tile using CUDA Graphs for true tile-by-tile execution (reduced kernel launch overhead)");
+            "Apply a tile using CUDA Graphs for reduced kernel launch overhead")
+        
+        .def("apply_tile_cooperative", &Statevector::apply_tile_cooperative,
+            py::arg("ops"),
+            "Apply a tile using a single cooperative kernel (TRUE tile-by-tile execution)");
 
 
 

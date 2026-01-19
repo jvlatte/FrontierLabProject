@@ -381,7 +381,7 @@ def main():
     
     # # Valid (transpiler, backend) pairs
     valid_transpiler_backend_pairs = [
-        ("baseline", "aer"),
+        # ("baseline", "aer"),
         ("custom", "custom"),
     ]
 

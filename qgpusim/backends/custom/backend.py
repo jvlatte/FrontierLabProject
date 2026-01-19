@@ -78,6 +78,121 @@ def clear_gate_cache():
     GATE_CACHE.clear()
     cp.get_default_memory_pool().free_all_blocks()
 
+
+def fuse_tile_ops(tile_ops, cp_dtype=cp.complex128):
+    """
+    Fuse consecutive gates on the same qubit(s) to reduce memory passes.
+    
+    This performs a two-pass fusion:
+    Pass 1: Fuse consecutive 1Q gates on the same qubit
+    Pass 2: Fuse consecutive 2Q gates on the same qubit pair
+    
+    The fusion is conservative - we only fuse when gates are truly consecutive
+    and have no intervening gates on any of their qubits.
+    
+    Returns a new list of (potentially fewer) tile_ops with fused matrices.
+    """
+    if len(tile_ops) <= 1:
+        return tile_ops
+    
+    # Build dependency graph approach:
+    # We can fuse gate G2 with G1 if:
+    # 1. They act on the same qubit(s)
+    # 2. There is no gate between G1 and G2 that acts on any of those qubits
+    
+    # Simpler: Track last gate index per qubit and attempt fusion
+    # qubit -> (index_in_result, is_fused)
+    # When we see a new gate, check if we can merge with the last gate on same qubit(s)
+    
+    result = []
+    # Track index in result of last gate touching each qubit
+    last_gate_idx = {}  # qubit -> index in result
+    
+    fuse_count = 0
+    
+    for op in tile_ops:
+        if op[0] == "1q":
+            q, U = op[1], op[2]
+            
+            # Can we fuse with the last gate on this qubit?
+            if q in last_gate_idx:
+                idx = last_gate_idx[q]
+                prev_op = result[idx]
+                
+                # Check if the previous op is also a 1Q gate on the same qubit
+                # AND no other gate has touched this qubit since then
+                if prev_op[0] == "1q" and prev_op[1] == q:
+                    # Check that no intervening gates touched this qubit
+                    can_fuse = True
+                    for i in range(idx + 1, len(result)):
+                        other = result[i]
+                        if other[0] == "1q" and other[1] == q:
+                            can_fuse = False
+                            break
+                        if other[0] == "2q" and (other[1] == q or other[2] == q):
+                            can_fuse = False
+                            break
+                    
+                    if can_fuse:
+                        # Fuse: new_U = U @ prev_U (apply prev first, then current)
+                        fused_U = cp.matmul(U, prev_op[2])
+                        result[idx] = ("1q", q, fused_U)
+                        last_gate_idx[q] = idx
+                        fuse_count += 1
+                        continue
+            
+            # Cannot fuse, add as new
+            last_gate_idx[q] = len(result)
+            result.append(("1q", q, U))
+            
+        elif op[0] == "2q":
+            q0, q1, U = op[1], op[2], op[3]
+            
+            # For 2Q gates, check if we can fuse with another 2Q on same pair
+            # Only fuse if exact same qubit pair in same order (q0, q1)
+            key = (q0, q1)
+            
+            # Find last 2Q gate on this exact pair
+            prev_idx = None
+            for i in range(len(result) - 1, -1, -1):
+                prev_op = result[i]
+                if prev_op[0] == "2q" and prev_op[1] == q0 and prev_op[2] == q1:
+                    prev_idx = i
+                    break
+                # If any gate touches q0 or q1, we can't fuse past it
+                if prev_op[0] == "1q" and prev_op[1] in (q0, q1):
+                    break
+                if prev_op[0] == "2q" and (prev_op[1] in (q0, q1) or prev_op[2] in (q0, q1)):
+                    break
+            
+            if prev_idx is not None:
+                # Check no intervening gates touch q0 or q1
+                can_fuse = True
+                for i in range(prev_idx + 1, len(result)):
+                    other = result[i]
+                    if other[0] == "1q" and other[1] in (q0, q1):
+                        can_fuse = False
+                        break
+                    if other[0] == "2q" and (other[1] in (q0, q1) or other[2] in (q0, q1)):
+                        can_fuse = False
+                        break
+                
+                if can_fuse:
+                    prev_op = result[prev_idx]
+                    fused_U = cp.matmul(U, prev_op[3])
+                    result[prev_idx] = ("2q", q0, q1, fused_U)
+                    last_gate_idx[q0] = prev_idx
+                    last_gate_idx[q1] = prev_idx
+                    fuse_count += 1
+                    continue
+            
+            # Cannot fuse, add as new
+            last_gate_idx[q0] = len(result)
+            last_gate_idx[q1] = len(result)
+            result.append(("2q", q0, q1, U))
+    
+    return result
+
 def permute_statevector(psi: cp.ndarray, layout_old, layout_new):
     n = len(layout_old)
     dim = 1 << n
@@ -85,17 +200,16 @@ def permute_statevector(psi: cp.ndarray, layout_old, layout_new):
     old_pos = {q: p for p, q in enumerate(layout_old)}
     new_pos = {q: p for p, q in enumerate(layout_new)}
 
-    map_old_to_new = cp.asarray(
-        [new_pos[layout_old[p]] for p in range(n)],
-        dtype=cp.int32
-    )
+    # Build mapping on CPU (small array)
+    map_old_to_new_list = [new_pos[layout_old[p]] for p in range(n)]
 
-    idx_old = cp.arange(dim, dtype=cp.uint32)
-    idx_new = cp.zeros_like(idx_old)
+    idx_old = cp.arange(dim, dtype=cp.uint64)
+    idx_new = cp.zeros(dim, dtype=cp.uint64)
 
     for p_old in range(n):
+        p_new = map_old_to_new_list[p_old]  # Python int
         bit = (idx_old >> p_old) & 1
-        idx_new |= (bit << map_old_to_new[p_old])
+        idx_new |= (bit << p_new)
 
     psi_new = psi[idx_new]
     return psi_new
@@ -215,7 +329,7 @@ def apply_2q_gate_cupy_fallback(
     del base, i00, i01, i10, i11, v00, v01, v10, v11
 
 
-def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None, use_float32: bool=False, use_cuda_graphs: bool=True):
+def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, shots: int=None, use_float32: bool=False, use_cuda_graphs: bool=True, tile_mode: str="cooperative", enable_fusion: bool=True):
     """Run quantum circuit simulation on custom GPU backend.
     
     Args:
@@ -225,8 +339,13 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
         shots: Number of measurement shots (optional)
         use_float32: If True, use complex64 (float32) for ~2x memory savings.
                      Default False uses complex128 (float64) for higher precision.
-        use_cuda_graphs: If True, use CUDA Graphs for true tile-by-tile execution.
+        use_cuda_graphs: If True, use CUDA Graphs (only if tile_mode is "graphed").
                          This reduces kernel launch overhead. Default True.
+        tile_mode: Tile execution mode:
+                   - "cooperative": TRUE tile kernel using cooperative launch (single kernel per tile)
+                   - "graphed": CUDA Graphs to capture/replay kernel launches
+                   - "sequential": Gate-by-gate kernel launches on a stream
+        enable_fusion: If True, fuse consecutive gates on same qubit(s) to reduce memory passes.
     """
     print("Running custom GPU backend")
     num_qubits = qc.num_qubits
@@ -235,7 +354,14 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
     cp_dtype = cp.complex64 if use_float32 else cp.complex128
     np_dtype = np.complex64 if use_float32 else np.complex128
     print(f"Precision: {'complex64' if use_float32 else 'complex128'}")
-    print(f"Tile execution mode: {'CUDA Graphs (true tile-by-tile)' if use_cuda_graphs else 'Gate-by-gate'}")
+    
+    mode_desc = {
+        "cooperative": "Cooperative Kernel (TRUE tile-by-tile)",
+        "graphed": "CUDA Graphs (reduced launch overhead)",
+        "sequential": "Sequential (gate-by-gate)"
+    }
+    print(f"Tile execution mode: {mode_desc.get(tile_mode, tile_mode)}")
+    print(f"Gate fusion: {'enabled' if enable_fusion else 'disabled'}")
 
     # Pre-build qubit index map (avoid repeated find_bit calls)
     qubit_map = {q: qc.find_bit(q).index for q in qc.qubits}
@@ -246,13 +372,15 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
     num_tiles = len(tile_plan)
     num_reorders = 0
     num_gates = 0
+    num_fused_ops = 0  # track fused gate count
 
     t_perm = 0.0
     t_apply = 0.0
 
 
     # Use fully native Statevector class (gate-by-gate execution)
-    if USE_NATIVE:
+    # Note: Native module only supports complex128, so fall back to CuPy for float32
+    if USE_NATIVE and not use_float32:
         sv = qgpusim_cuda.Statevector(num_qubits)
         print("Mode: Native pybind11 CUDA")
         layout = list(range(num_qubits))
@@ -261,7 +389,7 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
             if tile.layout != layout:
                 t0 = time.perf_counter()
                 sv.permute(layout, tile.layout)
-                sv.synchronize()
+                # No sync needed - permute is on same stream as gates
                 t_perm += time.perf_counter() - t0
                 num_reorders += 1
                 layout = tile.layout
@@ -297,15 +425,28 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                 #     tile_ops.append(("2q", local_qubits[0], local_qubits[1], U_dev))
 
             if tile_ops:
-                # Use CUDA Graphs for true tile-by-tile execution (single launch per tile)
-                # or fall back to gate-by-gate execution
-                if use_cuda_graphs:
+                # Apply gate fusion if enabled
+                if enable_fusion:
+                    tile_ops = fuse_tile_ops(tile_ops, cp_dtype)
+                num_fused_ops += len(tile_ops)
+                
+                # Select tile execution method based on tile_mode
+                if tile_mode == "cooperative":
+                    # TRUE tile kernel: single cooperative kernel for ALL gates in tile
+                    sv.apply_tile_cooperative(tile_ops)
+                elif tile_mode == "graphed":
+                    # CUDA Graphs: capture kernel launches, replay as single graph
                     sv.apply_tile_graphed(tile_ops)
                 else:
+                    # Sequential: gate-by-gate kernel launches
                     sv.apply_tile_dev(tile_ops)
-                sv.synchronize()
+                # Note: no sync needed here - operations are ordered on the stream
             t_apply += time.perf_counter() - t0
 
+        # Single sync at the end before reading results
+        t_sync_start = time.perf_counter()
+        sv.synchronize()
+        t_sync = time.perf_counter() - t_sync_start
         print("Finished circuit execution using native CUDA module")
         result = sv.to_numpy()
         # Free GPU memory from statevector
@@ -314,15 +455,19 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
 
         t_total = time.perf_counter() - t_start
         avg_tile_size = num_gates / max(1, num_tiles)
+        fusion_ratio = num_gates / max(1, num_fused_ops) if enable_fusion else 1.0
 
         print("==== TILING METRICS ====")
         print(f"num_qubits: {num_qubits}")
         print(f"num_tiles: {num_tiles}")
         print(f"num_gates: {num_gates}")
+        if enable_fusion:
+            print(f"num_fused_ops: {num_fused_ops} (fusion ratio: {fusion_ratio:.2f}x)")
         print(f"avg_tile_size: {avg_tile_size:.2f}")
         print(f"num_reorders: {num_reorders}")
-        print(f"t_perm:  {t_perm:.6f} s ({(t_perm/t_total*100):.1f}%)")
-        print(f"t_apply: {t_apply:.6f} s ({(t_apply/t_total*100):.1f}%)")
+        print(f"t_perm (CPU):  {t_perm:.6f} s")
+        print(f"t_apply (CPU): {t_apply:.6f} s")
+        print(f"t_sync (GPU):  {t_sync:.6f} s ({(t_sync/t_total*100):.1f}%)")
         print(f"t_total: {t_total:.6f} s")
 
 
