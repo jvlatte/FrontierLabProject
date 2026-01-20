@@ -24,6 +24,11 @@ def plot_transpile_and_sim_vs_n(df, outdir):
         if sub.empty:
             continue
 
+        # Filter out gpu + custom with aer backend (keep only custom backend for gpu + custom)
+        sub = sub.copy()
+        mask = (sub['mode'] == 'gpu') & (sub['transpiler'] == 'custom') & (sub['backend'] == 'aer')
+        sub = sub[~mask]
+
         # median aggregation
         med = (
             sub.groupby(['mode', 'transpiler', 'nqubits'], as_index=False)[['transpile_s', 'simulate_s']]
@@ -110,6 +115,9 @@ def plot_runtime_vs_n(df, outdir):
         if not gpu_sub.empty:
             for transp in sorted(gpu_sub['transpiler'].dropna().unique()):
                 grp = gpu_sub[gpu_sub['transpiler'] == transp]
+                # Filter to only custom backend for custom transpiler
+                if transp == 'custom' and 'backend' in grp.columns:
+                    grp = grp[grp['backend'] == 'custom']
                 if grp.empty:
                     continue
                 gpu_med = (

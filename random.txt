@@ -1,53 +1,62 @@
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
-ACTUALLY Applied tile using cooperative kernel
+2026-01-20T13:37:24,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000296,163.219931,163.220227,30,64,464,464,0,0,480,480,16922.91,1311.69,0,,,,,,reference,baseline,10,aer
+2026-01-20T13:40:07,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000287,163.092209,163.092495,30,64,464,464,0,0,480,480,33306.91,1311.69,0,,,,,,reference,baseline,10,aer
+2026-01-20T13:42:50,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000392,162.988735,162.989128,30,64,464,464,0,0,480,480,33306.91,1311.69,0,,,,,,reference,baseline,10,aer
+2026-01-20T13:45:33,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000419,163.187212,163.187631,30,64,464,464,0,0,480,480,33306.91,1311.69,0,,,,,,reference,baseline,10,aer
+2026-01-20T13:48:16,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000377,162.956334,162.956711,30,64,464,464,0,0,480,480,33306.91,1311.69,0,,,,,,reference,baseline,10,aer
+2026-01-20T13:48:33,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,1,0.000367,16.398834,16.399202,30,64,464,464,0,0,480,480,33306.91,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:49:03,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,2,0.000424,16.360058,16.360482,30,64,464,464,0,0,480,480,49690.92,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:49:34,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,3,0.000420,16.353783,16.354202,30,64,464,464,0,0,480,480,49690.92,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:50:04,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,4,0.000399,16.331912,16.332310,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:50:35,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,5,0.000393,16.333891,16.334283,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:53:39,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000185,169.134169,169.134354,30,64,464,464,0,0,480,480,16923.38,1311.69,0,,,,,,reference,baseline,10,custom
+2026-01-20T13:56:25,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000237,166.012930,166.013167,30,64,464,464,0,0,480,480,33307.38,1311.69,0,,,,,,reference,baseline,10,custom
+2026-01-20T13:59:08,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000313,163.531867,163.532179,30,64,464,464,0,0,480,480,33307.38,1311.69,0,,,,,,reference,baseline,10,custom
+2026-01-20T14:01:51,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000335,163.089831,163.090166,30,64,464,464,0,0,480,480,33307.38,1311.69,0,,,,,,reference,baseline,10,custom
+2026-01-20T14:04:34,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.000350,162.979011,162.979361,30,64,464,464,0,0,480,480,33307.38,1311.69,0,,,,,,reference,baseline,10,custom
+2026-01-20T14:04:51,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,1,0.000324,16.442612,16.442936,30,64,464,464,0,0,480,480,33307.38,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,custom
+2026-01-20T14:05:22,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,2,0.000343,16.399701,16.400044,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,custom
+2026-01-20T14:05:52,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,3,0.000299,16.380627,16.380925,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,custom
+2026-01-20T14:06:23,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,4,0.000341,16.384272,16.384613,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,custom
+2026-01-20T14:06:54,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,5,0.000332,16.374969,16.375301,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,custom
+2026-01-20T14:10:36,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.086637,208.251039,208.337675,30,48,464,464,0,0,0,0,16923.55,1311.69,0,,,,,,reference,custom,10,aer
+2026-01-20T14:14:05,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.086330,208.426388,208.512718,30,48,464,464,0,0,0,0,33307.60,1311.69,0,,,,,,reference,custom,10,aer
+2026-01-20T14:17:33,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.085433,208.423136,208.508569,30,48,464,464,0,0,0,0,33308.11,1311.69,0,,,,,,reference,custom,10,aer
+2026-01-20T14:21:02,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.084140,208.584938,208.669079,30,48,464,464,0,0,0,0,33308.29,1311.69,0,,,,,,reference,custom,10,aer
+2026-01-20T14:24:31,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.084731,208.308394,208.393126,30,48,464,464,0,0,0,0,33308.29,1311.69,0,,,,,,reference,custom,10,aer
+2026-01-20T14:25:14,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,1,0.084106,43.438074,43.522180,30,48,464,464,0,0,0,0,33308.29,1311.69,0,0.999999999999,1.021e-06,,,True,overlap=0.999999999999; l2=1.021e-06; pass=True,custom,10,aer
+2026-01-20T14:26:12,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,2,0.083795,43.329639,43.413434,30,48,464,464,0,0,0,0,49695.80,1311.69,0,0.999999999999,1.021e-06,,,True,overlap=0.999999999999; l2=1.021e-06; pass=True,custom,10,aer
+2026-01-20T14:27:09,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,3,0.083452,43.268114,43.351567,30,48,464,464,0,0,0,0,49695.80,1311.69,0,0.999999999999,1.021e-06,,,True,overlap=0.999999999999; l2=1.021e-06; pass=True,custom,10,aer
+2026-01-20T14:28:07,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,4,0.083176,43.230102,43.313278,30,48,464,464,0,0,0,0,49708.05,1311.69,0,0.999999999999,1.021e-06,,,True,overlap=0.999999999999; l2=1.021e-06; pass=True,custom,10,aer
+2026-01-20T14:29:05,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,5,0.083885,43.193340,43.277225,30,48,464,464,0,0,0,0,49710.80,1311.69,0,0.999999999999,1.021e-06,,,True,overlap=0.999999999999; l2=1.021e-06; pass=True,custom,10,aer
+2026-01-20T14:32:48,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.083872,208.347195,208.431067,30,48,464,464,0,0,0,0,16943.58,1311.69,0,,,,,,reference,custom,10,custom
+2026-01-20T14:36:17,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.083453,209.261731,209.345184,30,48,464,464,0,0,0,0,33327.59,1311.69,0,,,,,,reference,custom,10,custom
+2026-01-20T14:39:46,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.083595,208.435932,208.519527,30,48,464,464,0,0,0,0,33327.59,1311.69,0,,,,,,reference,custom,10,custom
+2026-01-20T14:43:14,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.082891,208.603103,208.685994,30,48,464,464,0,0,0,0,33327.59,1311.69,0,,,,,,reference,custom,10,custom
+2026-01-20T14:46:42,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,cpu,CPU,statevector,random,30,16,0,0,0.082903,208.127953,208.210856,30,48,464,464,0,0,0,0,33327.59,1311.69,0,,,,,,reference,custom,10,custom
+2026-01-20T14:46:56,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,1,0.086286,13.865852,13.952138,30,48,464,464,0,0,0,0,25135.60,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:47:29,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,2,0.092920,13.873558,13.966478,30,48,464,464,0,0,0,0,33327.68,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:48:02,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,3,0.091812,13.910929,14.002742,30,48,464,464,0,0,0,0,33327.70,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:48:34,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,4,0.092858,13.888688,13.981547,30,48,464,464,0,0,0,0,33327.70,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:49:07,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,5,0.091639,13.884662,13.976301,30,48,464,464,0,0,0,0,33327.70,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+
+
+2026-01-20T13:48:33,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,1,0.000367,16.398834,16.399202,30,64,464,464,0,0,480,480,33306.91,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:49:03,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,2,0.000424,16.360058,16.360482,30,64,464,464,0,0,480,480,49690.92,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:49:34,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,3,0.000420,16.353783,16.354202,30,64,464,464,0,0,480,480,49690.92,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:50:04,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,4,0.000399,16.331912,16.332310,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T13:50:35,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,5,0.000393,16.333891,16.334283,30,64,464,464,0,0,480,480,49691.39,1311.69,0,1.000000000000,9.789e-07,,,True,overlap=1.000000000000; l2=9.789e-07; pass=True,baseline,10,aer
+2026-01-20T14:46:56,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,1,0.086286,13.865852,13.952138,30,48,464,464,0,0,0,0,25135.60,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:47:29,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,2,0.092920,13.873558,13.966478,30,48,464,464,0,0,0,0,33327.68,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:48:02,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,3,0.091812,13.910929,14.002742,30,48,464,464,0,0,0,0,33327.70,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:48:34,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,4,0.092858,13.888688,13.981547,30,48,464,464,0,0,0,0,33327.70,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T14:49:07,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,30,16,0,5,0.091639,13.884662,13.976301,30,48,464,464,0,0,0,0,33327.70,1311.69,20,1.000000011709,1.994e+00,,,True,overlap=1.000000011709; l2=1.994e+00; pass=True,custom,10,custom
+2026-01-20T15:16:05,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,1,0.000976,69.271678,69.272654,32,64,496,496,0,0,512,512,66029.42,1309.69,0,,,,,,skipped_comparison (nqubits>=32),baseline,10,aer
+2026-01-20T15:17:13,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,2,0.000659,68.284969,68.285628,32,64,496,496,0,0,512,512,131567.20,1309.69,0,,,,,,skipped_comparison (nqubits>=32),baseline,10,aer
+2026-01-20T15:18:22,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,3,0.000431,68.216321,68.216752,32,64,496,496,0,0,512,512,131567.33,1309.69,0,,,,,,skipped_comparison (nqubits>=32),baseline,10,aer
+2026-01-20T15:19:30,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,4,0.000285,68.148124,68.148408,32,64,496,496,0,0,512,512,131567.51,1309.69,0,,,,,,skipped_comparison (nqubits>=32),baseline,10,aer
+2026-01-20T15:20:38,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,5,0.000408,68.122200,68.122608,32,64,496,496,0,0,512,512,131567.68,1309.69,0,,,,,,skipped_comparison (nqubits>=32),baseline,10,aer
+2026-01-20T15:21:39,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,1,0.263905,60.435810,60.699715,32,48,496,496,0,0,0,0,33276.75,1311.69,20,,,,,,skipped_comparison (nqubits>=32),custom,10,custom
+2026-01-20T15:22:40,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,2,0.088940,60.387452,60.476391,32,48,496,496,0,0,0,0,66046.71,1311.69,20,,,,,,skipped_comparison (nqubits>=32),custom,10,custom
+2026-01-20T15:23:40,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,3,0.088319,60.393794,60.482113,32,48,496,496,0,0,0,0,66046.88,1311.69,20,,,,,,skipped_comparison (nqubits>=32),custom,10,custom
+2026-01-20T15:24:41,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,4,0.089509,60.401252,60.490761,32,48,496,496,0,0,0,0,66047.06,1311.69,20,,,,,,skipped_comparison (nqubits>=32),custom,10,custom
+2026-01-20T15:25:41,flogger.ics.es.osaka-u.ac.jp,Linux-5.14.0-570.39.1.el9_6.x86_64-x86_64-with-glibc2.34,3.11.14,gpu,GPU,statevector,random,32,16,0,5,0.088399,60.400001,60.488400,32,48,496,496,0,0,0,0,66047.57,1311.69,20,,,,,,skipped_comparison (nqubits>=32),custom,10,custom

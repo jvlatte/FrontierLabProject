@@ -77,6 +77,14 @@ static cuDoubleComplex* get_cupy_ptr(py::object cupy_arr) {
     return reinterpret_cast<cuDoubleComplex*>(ptr);
 }
 
+// Float32 version
+static cuFloatComplex* get_cupy_ptr_f32(py::object cupy_arr) {
+    py::dict cuda_iface = cupy_arr.attr("__cuda_array_interface__").cast<py::dict>();
+    py::tuple data_tuple = cuda_iface["data"].cast<py::tuple>();
+    uintptr_t ptr = data_tuple[0].cast<uintptr_t>();
+    if (ptr == 0) throw std::runtime_error("CuPy array has null device pointer");
+    return reinterpret_cast<cuFloatComplex*>(ptr);
+}
 
 // Statevector class that manages GPU memory
 class Statevector {
@@ -690,6 +698,299 @@ private:
 };
 
 
+// ============================================================================
+// StatevectorF32 - Float32 (complex64) version for 2x memory savings
+// ============================================================================
+class StatevectorF32 {
+public:
+    StatevectorF32(int num_qubits) : num_qubits_(num_qubits) {
+        dim_ = 1ULL << num_qubits;
+        
+        CUDA_CHECK(cudaMalloc(&d_psi_, dim_ * sizeof(cuFloatComplex)));
+        CUDA_CHECK(cudaMalloc(&d_U_, 16 * sizeof(cuFloatComplex)));
+        CUDA_CHECK(cudaMalloc(&d_tmp_, dim_ * sizeof(cuFloatComplex)));
+        CUDA_CHECK(cudaMalloc(&d_map_, num_qubits_ * sizeof(int)));
+
+        CUDA_CHECK(cudaMemset(d_psi_, 0, dim_ * sizeof(cuFloatComplex)));
+        
+        cuFloatComplex one = make_cuFloatComplex(1.0f, 0.0f);
+        CUDA_CHECK(cudaMemcpy(d_psi_, &one, sizeof(cuFloatComplex), 
+                              cudaMemcpyHostToDevice));
+    }
+    
+    ~StatevectorF32() {
+        if (d_psi_) cudaFree(d_psi_);
+        if (d_U_) cudaFree(d_U_);
+        if (d_tmp_) cudaFree(d_tmp_);
+        if (d_map_) cudaFree(d_map_);
+        if (d_tile_ops_) cudaFree(d_tile_ops_);
+        if (cached_graph_exec_) cudaGraphExecDestroy(cached_graph_exec_);
+        if (cached_graph_) cudaGraphDestroy(cached_graph_);
+        if (tile_stream_) cudaStreamDestroy(tile_stream_);
+    }
+    
+    StatevectorF32(const StatevectorF32&) = delete;
+    StatevectorF32& operator=(const StatevectorF32&) = delete;
+    
+    struct TileOp {
+        int kind;
+        int q0;
+        int q1;
+        cuFloatComplex* dU;
+    };
+
+    cudaStream_t tile_stream_ = nullptr;
+    cudaGraph_t cached_graph_ = nullptr;
+    cudaGraphExec_t cached_graph_exec_ = nullptr;
+    std::vector<TileOp> cached_tile_signature_;
+    
+    cudaStream_t get_tile_stream() {
+        if (!tile_stream_) {
+            CUDA_CHECK(cudaStreamCreate(&tile_stream_));
+        }
+        return tile_stream_;
+    }
+    
+    bool matches_cached_signature(const std::vector<TileOp>& ops) {
+        if (ops.size() != cached_tile_signature_.size()) return false;
+        for (size_t i = 0; i < ops.size(); ++i) {
+            if (ops[i].kind != cached_tile_signature_[i].kind ||
+                ops[i].q0 != cached_tile_signature_[i].q0 ||
+                ops[i].q1 != cached_tile_signature_[i].q1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    std::vector<TileOp> parse_tile_ops(py::list ops) {
+        const ssize_t nops = py::len(ops);
+        std::vector<TileOp> parsed;
+        parsed.reserve((size_t)nops);
+
+        for (ssize_t i = 0; i < nops; ++i) {
+            py::handle h = ops[i];
+            py::tuple t = py::reinterpret_borrow<py::tuple>(h);
+            if (t.size() < 1) {
+                throw std::runtime_error("apply_tile_dev: empty tuple op descriptor");
+            }
+
+            std::string kind = py::cast<std::string>(t[0]);
+
+            if (kind == "1q") {
+                if (t.size() != 3) throw std::runtime_error("apply_tile_dev: 1q expects ('1q', q0, U_dev)");
+                int q0 = py::cast<int>(t[1]);
+                py::object U_cupy = py::reinterpret_borrow<py::object>(t[2]);
+                if (q0 < 0 || q0 >= num_qubits_) throw std::runtime_error("apply_tile_dev: invalid q0");
+                cuFloatComplex* dU = get_cupy_ptr_f32(U_cupy);
+                parsed.push_back(TileOp{1, q0, -1, dU});
+
+            } else if (kind == "2q") {
+                if (t.size() != 4) throw std::runtime_error("apply_tile_dev: 2q expects ('2q', q0, q1, U_dev)");
+                int q0 = py::cast<int>(t[1]);
+                int q1 = py::cast<int>(t[2]);
+                py::object U_cupy = py::reinterpret_borrow<py::object>(t[3]);
+                if (q0 < 0 || q0 >= num_qubits_ || q1 < 0 || q1 >= num_qubits_)
+                    throw std::runtime_error("apply_tile_dev: invalid q0/q1");
+                if (q0 == q1) throw std::runtime_error("apply_tile_dev: q0 == q1");
+                cuFloatComplex* dU = get_cupy_ptr_f32(U_cupy);
+                parsed.push_back(TileOp{2, q0, q1, dU});
+
+            } else {
+                throw std::runtime_error("apply_tile_dev: unknown op kind: " + kind);
+            }
+        }
+        return parsed;
+    }
+
+    void apply_tile_dev(py::list ops) {
+        std::vector<TileOp> parsed = parse_tile_ops(ops);
+        py::gil_scoped_release release;
+        cudaStream_t stream = get_tile_stream();
+
+        for (const auto& op : parsed) {
+            if (op.kind == 1) {
+                launch_apply_1q_gate_f32(d_psi_, op.dU, num_qubits_, op.q0, stream);
+                CUDA_CHECK_KERNEL();
+            } else {
+                launch_apply_2q_gate_f32(d_psi_, op.dU, num_qubits_, op.q0, op.q1, stream);
+                CUDA_CHECK_KERNEL();
+            }
+        }
+    }
+
+    void apply_tile_graphed(py::list ops) {
+        std::vector<TileOp> parsed = parse_tile_ops(ops);
+        if (parsed.empty()) return;
+
+        py::gil_scoped_release release;
+        cudaStream_t stream = get_tile_stream();
+
+        if (cached_graph_exec_ && matches_cached_signature(parsed)) {
+            bool can_reuse = true;
+            for (size_t i = 0; i < parsed.size() && can_reuse; ++i) {
+                if (parsed[i].dU != cached_tile_signature_[i].dU) {
+                    can_reuse = false;
+                }
+            }
+            
+            if (can_reuse) {
+                CUDA_CHECK(cudaGraphLaunch(cached_graph_exec_, stream));
+                return;
+            }
+        }
+        
+        if (cached_graph_exec_) {
+            cudaGraphExecDestroy(cached_graph_exec_);
+            cached_graph_exec_ = nullptr;
+        }
+        if (cached_graph_) {
+            cudaGraphDestroy(cached_graph_);
+            cached_graph_ = nullptr;
+        }
+
+        CUDA_CHECK(cudaStreamBeginCapture(stream, cudaStreamCaptureModeGlobal));
+
+        for (const auto& op : parsed) {
+            if (op.kind == 1) {
+                launch_apply_1q_gate_f32(d_psi_, op.dU, num_qubits_, op.q0, stream);
+            } else {
+                launch_apply_2q_gate_f32(d_psi_, op.dU, num_qubits_, op.q0, op.q1, stream);
+            }
+        }
+
+        CUDA_CHECK(cudaStreamEndCapture(stream, &cached_graph_));
+        CUDA_CHECK(cudaGraphInstantiate(&cached_graph_exec_, cached_graph_, NULL, NULL, 0));
+        CUDA_CHECK(cudaGraphLaunch(cached_graph_exec_, stream));
+        
+        cached_tile_signature_ = parsed;
+    }
+
+    void apply_tile_cooperative(py::list ops) {
+        std::vector<TileOp> parsed = parse_tile_ops(ops);
+        if (parsed.empty()) return;
+
+        std::vector<TileGateOpF32> kernel_ops(parsed.size());
+        for (size_t i = 0; i < parsed.size(); ++i) {
+            kernel_ops[i].kind = parsed[i].kind;
+            kernel_ops[i].q0 = parsed[i].q0;
+            kernel_ops[i].q1 = parsed[i].q1;
+            kernel_ops[i].U = parsed[i].dU;
+            kernel_ops[i].needs_sync = 0;
+        }
+
+        py::gil_scoped_release release;
+        
+        size_t needed_size = kernel_ops.size();
+        if (needed_size > tile_ops_capacity_) {
+            if (d_tile_ops_) cudaFree(d_tile_ops_);
+            tile_ops_capacity_ = needed_size * 2;
+            CUDA_CHECK(cudaMalloc(&d_tile_ops_, tile_ops_capacity_ * sizeof(TileGateOpF32)));
+        }
+
+        CUDA_CHECK(cudaMemcpy(d_tile_ops_, kernel_ops.data(), 
+                              kernel_ops.size() * sizeof(TileGateOpF32),
+                              cudaMemcpyHostToDevice));
+
+        cudaStream_t stream = get_tile_stream();
+        launch_apply_tile_f32(d_psi_, d_tile_ops_, (int)kernel_ops.size(), num_qubits_, stream);
+        CUDA_CHECK_KERNEL();
+    }
+
+    void permute(py::list layout_old_py, py::list layout_new_py) {
+        if ((int)py::len(layout_old_py) != num_qubits_ ||
+            (int)py::len(layout_new_py) != num_qubits_) {
+            throw std::runtime_error("layout_old/layout_new must have length num_qubits");
+        }
+
+        std::vector<int> layout_old(num_qubits_);
+        std::vector<int> layout_new(num_qubits_);
+        for (int i = 0; i < num_qubits_; ++i) {
+            layout_old[i] = layout_old_py[i].cast<int>();
+            layout_new[i] = layout_new_py[i].cast<int>();
+        }
+
+        std::vector<int> new_pos(num_qubits_, -1);
+        for (int p = 0; p < num_qubits_; ++p) {
+            int gq = layout_new[p];
+            if (gq < 0 || gq >= num_qubits_) throw std::runtime_error("layout_new contains invalid qubit id");
+            if (new_pos[gq] != -1) throw std::runtime_error("layout_new is not a permutation");
+            new_pos[gq] = p;
+        }
+
+        std::vector<int> map_old_to_new(num_qubits_, -1);
+        for (int p_old = 0; p_old < num_qubits_; ++p_old) {
+            int gq = layout_old[p_old];
+            if (gq < 0 || gq >= num_qubits_) throw std::runtime_error("layout_old contains invalid qubit id");
+            int p_new = new_pos[gq];
+            if (p_new < 0) throw std::runtime_error("layout_old contains qubit not in layout_new");
+            map_old_to_new[p_old] = p_new;
+        }
+
+        cudaStream_t stream = get_tile_stream();
+        
+        CUDA_CHECK(cudaMemcpyAsync(d_map_, map_old_to_new.data(),
+                            num_qubits_ * sizeof(int),
+                            cudaMemcpyHostToDevice, stream));
+
+        launch_permute_bits_f32(d_psi_, d_tmp_, d_map_, num_qubits_, dim_, stream);
+        CUDA_CHECK_KERNEL();
+
+        std::swap(d_psi_, d_tmp_);
+        invalidate_cached_graph();
+    }
+    
+    void invalidate_cached_graph() {
+        if (cached_graph_exec_) {
+            cudaGraphExecDestroy(cached_graph_exec_);
+            cached_graph_exec_ = nullptr;
+        }
+        if (cached_graph_) {
+            cudaGraphDestroy(cached_graph_);
+            cached_graph_ = nullptr;
+        }
+        cached_tile_signature_.clear();
+    }
+    
+    py::array_t<std::complex<float>> to_numpy() {
+        CUDA_CHECK(cudaDeviceSynchronize());
+        py::array_t<std::complex<float>> result(dim_);
+        auto result_buf = result.request();
+        auto result_ptr = static_cast<std::complex<float>*>(result_buf.ptr);
+        
+        CUDA_CHECK(cudaMemcpy(result_ptr, d_psi_, 
+                              dim_ * sizeof(cuFloatComplex),
+                              cudaMemcpyDeviceToHost));
+        
+        return result;
+    }
+    
+    void reset() {
+        CUDA_CHECK(cudaMemset(d_psi_, 0, dim_ * sizeof(cuFloatComplex)));
+        cuFloatComplex one = make_cuFloatComplex(1.0f, 0.0f);
+        CUDA_CHECK(cudaMemcpy(d_psi_, &one, sizeof(cuFloatComplex), 
+                              cudaMemcpyHostToDevice));
+    }
+
+    void synchronize() {
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
+
+    int num_qubits() const { return num_qubits_; }
+    size_t dim() const { return dim_; }
+
+private:
+    cuFloatComplex* d_psi_ = nullptr;
+    cuFloatComplex* d_U_ = nullptr;
+    int num_qubits_;
+    size_t dim_;
+    cuFloatComplex* d_tmp_ = nullptr;
+    int* d_map_ = nullptr;
+    TileGateOpF32* d_tile_ops_ = nullptr;
+    size_t tile_ops_capacity_ = 0;
+};
+
+
 // Standalone function to apply 1-qubit gate to a CuPy array
 void apply_1q_gate_cupy(
     py::object psi_cupy,  // CuPy array
@@ -817,6 +1118,30 @@ PYBIND11_MODULE(qgpusim_cuda, m) {
             py::arg("ops"),
             "Apply a tile using a single cooperative kernel (TRUE tile-by-tile execution)");
 
+    // StatevectorF32 class - Float32 version for 2x memory savings
+    py::class_<StatevectorF32>(m, "StatevectorF32")
+        .def(py::init<int>(), py::arg("num_qubits"),
+             "Create a float32 statevector initialized to |0...0>")
+        .def("to_numpy", &StatevectorF32::to_numpy,
+             "Get the statevector as a numpy array (complex64)")
+        .def("reset", &StatevectorF32::reset,
+             "Reset to |0...0> state")
+        .def_property_readonly("num_qubits", &StatevectorF32::num_qubits)
+        .def_property_readonly("dim", &StatevectorF32::dim)
+        .def("synchronize", &StatevectorF32::synchronize,
+            "Synchronize the device (use sparingly)")
+        .def("permute", &StatevectorF32::permute,
+            py::arg("layout_old"), py::arg("layout_new"),
+            "Permute qubit bit-positions by reindexing the statevector")
+        .def("apply_tile_dev", &StatevectorF32::apply_tile_dev,
+            py::arg("ops"),
+            "Apply a tile given a list of ops: ('1q', q0, U_dev) or ('2q', q0, q1, U_dev)")
+        .def("apply_tile_graphed", &StatevectorF32::apply_tile_graphed,
+            py::arg("ops"),
+            "Apply a tile using CUDA Graphs for reduced kernel launch overhead")
+        .def("apply_tile_cooperative", &StatevectorF32::apply_tile_cooperative,
+            py::arg("ops"),
+            "Apply a tile using a single cooperative kernel (TRUE tile-by-tile execution)");
 
 
     

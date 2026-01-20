@@ -29,11 +29,11 @@ def create_simulator(
 
     device_used = "CPU"
     if backend == "cpu":
-        sim = AerSimulator(**sim_options)
+        sim = AerSimulator(**sim_options, precision="single")
     elif backend == "gpu":
         # Baseline GPU: only set device, no cuStateVec flag, no blocking, no parallel tweaks
         sim_options["device"] = "GPU"
-        sim = AerSimulator(**sim_options)
+        sim = AerSimulator(**sim_options, precision="single")
         device_used = "GPU"
     else:
         raise ValueError(f"Unknown backend: {backend}")

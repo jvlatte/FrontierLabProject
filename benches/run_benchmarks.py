@@ -152,32 +152,41 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
 
     # ----------------------------
     # 3) Run repeats: ref then candidate, compare
+    #    For large qubit counts (>=32), skip reference to avoid OOM
     # ----------------------------
+    skip_comparison = combo["nqubits"] >= 32
+    if skip_comparison:
+        print(f"[INFO] nqubits={combo['nqubits']} >= 32: skipping reference run to save memory")
+
     for i in range(combo["repeats"]):
-        # ---- Reference run (GPU baseline + Aer) ----
-        ref_trans_s, ref_sim_s, ref_extra, ref_stats, ref_res = run_once(
-            sim=ref_sim,
-            qc=qc,
-            task=combo["tasks"],
-            shots=combo["shots"],
-            measure=True,
-            transpiler="baseline",
-            num_local_qubits=combo["nL"],
-            backend="aer",
-            device_used=ref_device,
-        )
+        ref_sv = None
+        ref_counts = None
 
-        ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
-        ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
+        # ---- Reference run (GPU baseline + Aer) - skip for large qubit counts ----
+        if not skip_comparison:
+            ref_trans_s, ref_sim_s, ref_extra, ref_stats, ref_res = run_once(
+                sim=ref_sim,
+                qc=qc,
+                task=combo["tasks"],
+                shots=combo["shots"],
+                measure=True,
+                transpiler="baseline",
+                num_local_qubits=combo["nL"],
+                backend="aer",
+                device_used=ref_device,
+            )
 
-        # write reference row once per repeat (matches your current compare_both_backends behavior)
-        if args.csv:
-            ref_row = _row_base("gpu_ref", ref_device, 0, ref_trans_s, ref_sim_s, notes="reference")
-            # override these so the CSV clearly shows what the reference actually used
-            if "transpiler" in ref_row: ref_row["transpiler"] = "baseline"
-            if "backend" in ref_row:    ref_row["backend"] = "aer"
-            _inject_stats(ref_row, ref_stats, ref_res)
-            _append_csv(args.csv, _filtered(ref_row), fieldnames)
+            ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
+            ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
+
+            # write reference row once per repeat (matches your current compare_both_backends behavior)
+            if args.csv:
+                ref_row = _row_base("gpu_ref", ref_device, 0, ref_trans_s, ref_sim_s, notes="reference")
+                # override these so the CSV clearly shows what the reference actually used
+                if "transpiler" in ref_row: ref_row["transpiler"] = "baseline"
+                if "backend" in ref_row:    ref_row["backend"] = "aer"
+                _inject_stats(ref_row, ref_stats, ref_res)
+                _append_csv(args.csv, _filtered(ref_row), fieldnames)
 
         # ---- Candidate run (GPU custom/custom or whatever combo says) ----
         trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(
@@ -195,7 +204,17 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
 
         # ---- Correctness compare + print ----
         note = ""
-        if combo["tasks"] == "statevector":
+        ov, l2, tvd, kl, passed = None, None, None, None, None
+
+        if skip_comparison:
+            # No comparison - just log runtime metrics
+            print(
+                f"[GPU {combo['backend']}/{combo['transpiler']}] "
+                f"rep {i+1}/{combo['repeats']} | (no comparison - large qubit count) "
+                f"| t_transpile={trans_elapsed:.4f}s t_sim={sim_elapsed:.4f}s total={total_s:.4f}s"
+            )
+            note = "skipped_comparison (nqubits>=32)"
+        elif combo["tasks"] == "statevector":
             cand_sv = extra.get("statevector")
             ov, l2 = statevector_overlap(ref_sv, cand_sv)
             passed = (ov > 1 - 1e-9)
@@ -223,15 +242,16 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
             row = _row_base("gpu", device_used, i + 1, trans_elapsed, sim_elapsed, notes=note)
             _inject_stats(row, stats, res_usage)
 
-            # correctness columns (only if present)
-            if combo["tasks"] == "statevector":
-                if "overlap" in fieldnames: row["overlap"] = f"{ov:.12f}"
-                if "l2" in fieldnames:      row["l2"]      = f"{l2:.3e}"
-                if "passed" in fieldnames:  row["passed"]  = str(passed)
-            else:
-                if "tvd" in fieldnames:     row["tvd"]     = f"{tvd:.6f}"
-                if kl is not None:          row["kl_div"]  = f"{kl:.6f}"
-                if "passed" in fieldnames:  row["passed"]  = str(passed)
+            # correctness columns (only if comparison was done)
+            if not skip_comparison:
+                if combo["tasks"] == "statevector":
+                    if "overlap" in fieldnames: row["overlap"] = f"{ov:.12f}"
+                    if "l2" in fieldnames:      row["l2"]      = f"{l2:.3e}"
+                    if "passed" in fieldnames:  row["passed"]  = str(passed)
+                else:
+                    if "tvd" in fieldnames:     row["tvd"]     = f"{tvd:.6f}"
+                    if kl is not None:          row["kl_div"]  = f"{kl:.6f}"
+                    if "passed" in fieldnames:  row["passed"]  = str(passed)
 
             _append_csv(args.csv, _filtered(row), fieldnames)
 
@@ -300,14 +320,15 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         # for i in range(args.repeats):
         ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
             sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True,
-            transpiler="baseline", num_local_qubits=combo["nL"], backend="aer", device_used=cpu_device
+            transpiler=combo["transpiler"], num_local_qubits=combo["nL"], backend="aer", device_used=cpu_device
             )
 
         # extract ref artifact
         ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
         ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
 
-        if csv_path and combo["transpiler"] == "baseline" and combo["backend"] == "aer":
+        # if csv_path and combo["transpiler"] == "baseline" and combo["backend"] == "aer":
+        if csv_path:
             cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes="reference")
             _inject_stats(cpu_row, ref_stats, ref_res)
             # correctness cols stay blank for ref
@@ -371,17 +392,19 @@ def main():
         "mode": ["gpu"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [30],
+        "nqubits": [20, 25, 30, 31, 32, 33],
         "depth": [16],
         "shots": [1024],
-        "repeats": [3],
+        "repeats": [5],
         "seed": [42],
         "nL": [10],
+        # "transpiler": ["baseline", "custom"],  # filled in later
+        # "backend": ["aer", "custom"],     # filled in later
     }
     
     # # Valid (transpiler, backend) pairs
     valid_transpiler_backend_pairs = [
-        # ("baseline", "aer"),
+        ("baseline", "aer"),
         ("custom", "custom"),
     ]
 
@@ -389,6 +412,7 @@ def main():
     config_list = []
     for combination in product(*params.values()):
         base_config = dict(zip(keys, combination))
+        # config_list.append(base_config)
         # Add each valid transpiler/backend pair
         for transpiler, backend in valid_transpiler_backend_pairs:
             config = base_config.copy()

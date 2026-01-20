@@ -379,10 +379,14 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
 
 
     # Use fully native Statevector class (gate-by-gate execution)
-    # Note: Native module only supports complex128, so fall back to CuPy for float32
-    if USE_NATIVE and not use_float32:
-        sv = qgpusim_cuda.Statevector(num_qubits)
-        print("Mode: Native pybind11 CUDA")
+    # Choose StatevectorF32 for float32, Statevector for float64
+    if USE_NATIVE:
+        if use_float32:
+            sv = qgpusim_cuda.StatevectorF32(num_qubits)
+            print("Mode: Native pybind11 CUDA (float32)")
+        else:
+            sv = qgpusim_cuda.Statevector(num_qubits)
+            print("Mode: Native pybind11 CUDA")
         layout = list(range(num_qubits))
 
         for tile in tile_plan:
