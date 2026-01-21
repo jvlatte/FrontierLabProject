@@ -3,14 +3,15 @@ from qiskit_aer import AerSimulator
 import time
 
 from .metrics.correctness import statevector_overlap, total_variation_distance
-from .metrics.resources import _tqc_stats, _mem_snapshot
+from .metrics.resources import _max_usage, _tqc_stats, _mem_snapshot
 from .transpiler.pm import make_custom_pm
 from .backends.custom.backend import run_custom_backend
 
 
 
 def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measure: bool, 
-             transpiler: str = "baseline", num_local_qubits: int = 4, backend: str = "aer", device_used: str = "CPU"):
+             transpiler: str = "baseline", num_local_qubits: int = 4, backend: str = "aer", device_used: str = "CPU",
+             save_sv: bool = True):
     print(f"the transpiler is: {transpiler}")
     if task == "sampling" and measure:
         qc_run = qc.copy()
@@ -18,11 +19,16 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
     else:
         qc_run = qc
 
+    res_peak = {"rss_mb": "", "gpu_mem_mb": "", "gpu_util": ""}
+    custom_metrics = None  # Will be populated for custom backend
+
+
     # (1) transpile time
     transpile_t0 = time.perf_counter()
     if task == "statevector":
         qc_sv = qc_run.copy()
-        qc_sv.save_statevector()
+        if save_sv:
+            qc_sv.save_statevector()
 
         if transpiler == "custom":
             print("running through custom transpiler")
@@ -50,6 +56,10 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
     transpile_s = time.perf_counter() - transpile_t0
     print(f"device used: {device_used}")
 
+    res_peak = _max_usage(res_peak, _mem_snapshot())
+
+    res_peak = _max_usage(res_peak, _mem_snapshot())
+
     # (2) simulation time
     if transpiler == "baseline":
         # only use aer gpu backend for baseline transpiler
@@ -72,12 +82,15 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
                 raise ValueError("backend='custom' requires transpiler='custom' and tiling_plan")
 
             simulate_t0 = time.perf_counter()
-            psi = run_custom_backend(tqc, tiling_plan, task, shots, tile_mode="graphed", use_float32=True, enable_fusion=True)
+            psi, custom_metrics = run_custom_backend(tqc, tiling_plan, task, shots, tile_mode="graphed", use_float32=True, enable_fusion=True)
             # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
             result = None  # placeholder
             # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
             simulate_s = time.perf_counter() - simulate_t0
             print("ran with custom gpu backend")
+        
+    res_peak = _max_usage(res_peak, _mem_snapshot())
+
 
 
     # ----------------------------- PART THAT WAS COMMENTED OUT TO TRY NEW THINGS ----------------------------------------
@@ -109,9 +122,54 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
         else:
             counts = result.get_counts(tqc)
             extra = {"counts": counts}
+    
+    res_peak = _max_usage(res_peak, _mem_snapshot())
+
 
     # NEW: collect stats and resources
     stats = _tqc_stats(tqc)
-    res_usage = _mem_snapshot()
+    
+    # Merge custom backend metrics into stats if available
+    if custom_metrics is not None:
+        stats.update({
+            "num_tiles": custom_metrics.get("num_tiles", ""),
+            "num_gates_custom": custom_metrics.get("num_gates", ""),
+            "num_fused_ops": custom_metrics.get("num_fused_ops", ""),
+            "fusion_ratio": f"{custom_metrics.get('fusion_ratio', 1.0):.2f}",
+            "num_reorders": custom_metrics.get("num_reorders", ""),
+            "num_kernel_launches": custom_metrics.get("num_kernel_launches", ""),
+            "num_graph_replays": custom_metrics.get("num_graph_replays", ""),
+            "avoided_launches": custom_metrics.get("avoided_launches", ""),
+            "t_perm_s": f"{custom_metrics.get('t_perm_s', 0.0):.6f}",
+            "t_apply_s": f"{custom_metrics.get('t_apply_s', 0.0):.6f}",
+            "t_sync_s": f"{custom_metrics.get('t_sync_s', 0.0):.6f}",
+            "t_launch_overhead_saved_us": f"{custom_metrics.get('t_launch_overhead_saved_us', 0.0):.1f}",
+            "tile_mode": custom_metrics.get("tile_mode", ""),
+        })
+    else:
+        # For Aer backend: estimate kernel launches based on gate count
+        # Aer GPU uses cuStateVec which typically batches operations better than naive gate-by-gate,
+        # but for comparison purposes, we estimate as if it's ~1 kernel per gate (conservative)
+        # This gives a baseline to compare against our graphed approach
+        total_gates = stats.get("total_gates", 0)
+        KERNEL_LAUNCH_OVERHEAD_US = 10.0  # same estimate as custom backend
+        
+        stats.update({
+            "num_tiles": "",  # N/A for Aer
+            "num_gates_custom": total_gates,  # use total_gates from circuit for comparison
+            "num_fused_ops": total_gates,  # Aer doesn't do our fusion (estimate as 1:1)
+            "fusion_ratio": "1.00",  # no fusion
+            "num_reorders": "",  # N/A for Aer
+            "num_kernel_launches": total_gates,  # estimate: ~1 kernel per gate
+            "num_graph_replays": 0,  # Aer doesn't use CUDA graphs (typically)
+            "avoided_launches": 0,  # no graph-based optimization
+            "t_perm_s": "",  # N/A
+            "t_apply_s": "",  # N/A (included in simulate_s)
+            "t_sync_s": "",  # N/A (included in simulate_s)
+            "t_launch_overhead_saved_us": "0.0",  # no savings (baseline)
+            "tile_mode": "aer_sequential",  # mark as Aer's default mode
+        })
+    res_usage = res_peak
+
 
     return transpile_s, simulate_s, extra, stats, res_usage

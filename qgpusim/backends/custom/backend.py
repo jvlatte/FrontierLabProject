@@ -346,6 +346,21 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                    - "graphed": CUDA Graphs to capture/replay kernel launches
                    - "sequential": Gate-by-gate kernel launches on a stream
         enable_fusion: If True, fuse consecutive gates on same qubit(s) to reduce memory passes.
+        
+    Returns:
+        tuple: (result_statevector, metrics_dict) where metrics_dict contains:
+            - num_tiles: Number of tiles executed
+            - num_gates: Total number of gates
+            - num_fused_ops: Number of operations after fusion
+            - num_reorders: Number of qubit reorderings
+            - num_kernel_launches: Total kernel launches (0 for graphed mode per tile)
+            - num_graph_replays: Number of CUDA graph replays (graphed mode only)
+            - t_perm: Time spent on permutations
+            - t_apply: Time spent applying gates (CPU-side)
+            - t_sync: Time spent on GPU synchronization
+            - t_total: Total execution time
+            - t_launch_overhead_est: Estimated kernel launch overhead saved (graphed mode)
+            - tile_mode: The execution mode used
     """
     print("Running custom GPU backend")
     num_qubits = qc.num_qubits
@@ -373,6 +388,11 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
     num_reorders = 0
     num_gates = 0
     num_fused_ops = 0  # track fused gate count
+    
+    # Kernel launch overhead tracking
+    num_kernel_launches = 0  # actual kernel launches (for sequential/cooperative)
+    num_graph_replays = 0    # graph replays (for graphed mode)
+    KERNEL_LAUNCH_OVERHEAD_US = 10.0  # estimated ~10μs per kernel launch
 
     t_perm = 0.0
     t_apply = 0.0
@@ -392,6 +412,11 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
         for tile in tile_plan:
             if tile.layout != layout:
                 t0 = time.perf_counter()
+                
+                # added this debug print
+                free, total = cp.cuda.runtime.memGetInfo()
+                print("[before permute] free GB:", free/1e9)
+
                 sv.permute(layout, tile.layout)
                 # No sync needed - permute is on same stream as gates
                 t_perm += time.perf_counter() - t0
@@ -438,12 +463,17 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                 if tile_mode == "cooperative":
                     # TRUE tile kernel: single cooperative kernel for ALL gates in tile
                     sv.apply_tile_cooperative(tile_ops)
+                    num_kernel_launches += 1  # single kernel for entire tile
                 elif tile_mode == "graphed":
                     # CUDA Graphs: capture kernel launches, replay as single graph
                     sv.apply_tile_graphed(tile_ops)
+                    num_graph_replays += 1  # single graph replay for entire tile
+                    # Note: individual kernel launches happen during capture (first run)
+                    # but subsequent replays have minimal CPU overhead
                 else:
                     # Sequential: gate-by-gate kernel launches
                     sv.apply_tile_dev(tile_ops)
+                    num_kernel_launches += len(tile_ops)  # one launch per gate
                 # Note: no sync needed here - operations are ordered on the stream
             t_apply += time.perf_counter() - t0
 
@@ -460,6 +490,19 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
         t_total = time.perf_counter() - t_start
         avg_tile_size = num_gates / max(1, num_tiles)
         fusion_ratio = num_gates / max(1, num_fused_ops) if enable_fusion else 1.0
+        
+        # Estimate kernel launch overhead savings
+        # Sequential mode would launch num_fused_ops kernels
+        # Graphed mode replays num_tiles graphs (1 per tile) instead
+        if tile_mode == "graphed":
+            avoided_launches = num_fused_ops - num_graph_replays
+            t_launch_overhead_saved_us = avoided_launches * KERNEL_LAUNCH_OVERHEAD_US
+        elif tile_mode == "cooperative":
+            avoided_launches = num_fused_ops - num_tiles
+            t_launch_overhead_saved_us = avoided_launches * KERNEL_LAUNCH_OVERHEAD_US
+        else:
+            avoided_launches = 0
+            t_launch_overhead_saved_us = 0.0
 
         print("==== TILING METRICS ====")
         print(f"num_qubits: {num_qubits}")
@@ -473,9 +516,34 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
         print(f"t_apply (CPU): {t_apply:.6f} s")
         print(f"t_sync (GPU):  {t_sync:.6f} s ({(t_sync/t_total*100):.1f}%)")
         print(f"t_total: {t_total:.6f} s")
+        
+        print("==== KERNEL LAUNCH OVERHEAD ====")
+        print(f"tile_mode: {tile_mode}")
+        print(f"num_kernel_launches: {num_kernel_launches}")
+        print(f"num_graph_replays: {num_graph_replays}")
+        if tile_mode in ("graphed", "cooperative"):
+            print(f"avoided_launches: {avoided_launches} (vs sequential)")
+            print(f"est_overhead_saved: {t_launch_overhead_saved_us:.1f} μs ({t_launch_overhead_saved_us/1000:.3f} ms)")
+        
+        # Build metrics dictionary for benchmark tracking
+        metrics = {
+            "num_tiles": num_tiles,
+            "num_gates": num_gates,
+            "num_fused_ops": num_fused_ops,
+            "fusion_ratio": fusion_ratio,
+            "num_reorders": num_reorders,
+            "num_kernel_launches": num_kernel_launches,
+            "num_graph_replays": num_graph_replays,
+            "avoided_launches": avoided_launches,
+            "t_perm_s": t_perm,
+            "t_apply_s": t_apply,
+            "t_sync_s": t_sync,
+            "t_total_s": t_total,
+            "t_launch_overhead_saved_us": t_launch_overhead_saved_us,
+            "tile_mode": tile_mode,
+        }
 
-
-        return result
+        return result, metrics
 
     # Fallback: Use CuPy arrays with native kernel functions (if available) or pure CuPy
     print('CuPy-based fallback backend')
