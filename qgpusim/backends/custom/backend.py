@@ -413,9 +413,9 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
             if tile.layout != layout:
                 t0 = time.perf_counter()
                 
-                # added this debug print
-                free, total = cp.cuda.runtime.memGetInfo()
-                print("[before permute] free GB:", free/1e9)
+                # # added this debug print
+                # free, total = cp.cuda.runtime.memGetInfo()
+                # print("[before permute] free GB:", free/1e9)
 
                 sv.permute(layout, tile.layout)
                 # No sync needed - permute is on same stream as gates

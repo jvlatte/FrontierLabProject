@@ -116,7 +116,7 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
                 import numpy as np
                 sv = Statevector(vec)
                 # Keep as numpy array - avoid slow Python list conversion
-                extra = {"statevector": np.asarray(sv.data, dtype=np.complex128)}
+                extra = {"statevector": np.asarray(sv.data, dtype=np.complex64)}
             except Exception:
                 extra = {"statevector": None}
         else:

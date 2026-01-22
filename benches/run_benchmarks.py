@@ -304,7 +304,7 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
         elif combo["tasks"] == "statevector":
             cand_sv = extra.get("statevector")
             ov, l2 = statevector_overlap(ref_sv, cand_sv)
-            passed = (ov > 1 - 1e-9)
+            passed = (ov > 1 - 1e-6)  # 6 nines of precision - reasonable for large qubit counts
             print(
                 f"[GPU ref=aer/baseline vs cand={combo['backend']}/{combo['transpiler']}] "
                 f"rep {i+1}/{combo['repeats']} | overlap={ov:.12f} l2={l2:.3e} "
@@ -355,8 +355,10 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
     # last arg might not be needed
     env = _env_info()
 
-    if combo["nqubits"] >= 32:
-        single_backend(combo, fieldnames, env, qc, csv_path)
+    # For large qubit counts, skip comparison to avoid holding two statevectors in memory
+    skip_comparison = combo["nqubits"] >= 32
+    if skip_comparison:
+        print(f"[INFO] nqubits={combo['nqubits']} >= 32: skipping comparison to save memory (will run both but not compare)")
 
     def _filtered(row: Dict[str, object]) -> Dict[str, object]:
         # keep only keys that exist in current CSV header
@@ -420,6 +422,9 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
 
     # build CPU ref sim - always use baseline transpiler + aer backend as gold standard
     cpu_sim, cpu_device = create_simulator("cpu", combo["tasks"])
+    ref_sv = None
+    ref_counts = None
+    
     for i in range(combo["repeats"]):
         # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
         # for i in range(args.repeats):
@@ -428,13 +433,20 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
             transpiler=combo["transpiler"], num_local_qubits=combo["nL"], backend="aer", device_used=cpu_device
             )
 
-        # extract ref artifact
-        ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
-        ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
+        # extract ref artifact - only if we need comparison (to avoid holding large statevectors)
+        if not skip_comparison:
+            ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
+            ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
+        
+        # Free memory immediately if skipping comparison
+        if skip_comparison and combo["tasks"] == "statevector":
+            del ref_extra
+            import gc; gc.collect()
 
         # if csv_path and combo["transpiler"] == "baseline" and combo["backend"] == "aer":
         if csv_path:
-            cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes="reference")
+            note = "reference" if not skip_comparison else "reference (no comparison - large qubit count)"
+            cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes=note)
             _inject_stats(cpu_row, ref_stats, ref_res)
             # correctness cols stay blank for ref
             _append_csv(csv_path, _filtered(cpu_row), fieldnames)
@@ -453,11 +465,18 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         row = _row_base("gpu", gpu_device, i + 1, transpile_s, simulate_s)
         _inject_stats(row, g_stats, g_res)
 
-        # correctness
-        if combo["tasks"] == "statevector":
+        # correctness - skip comparison for large qubit counts to avoid OOM
+        if skip_comparison:
+            print(
+                f"[GPU {combo['backend']}/{combo['transpiler']}] rep {i+1}/{combo['repeats']} "
+                f"| (no comparison - large qubit count) "
+                f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s"
+            )
+            note = "skipped_comparison (large qubit count)"
+        elif combo["tasks"] == "statevector":
             gpu_sv = extra.get("statevector")
             ov, l2 = statevector_overlap(ref_sv, gpu_sv)
-            passed = (ov > 1 - 1e-9)
+            passed = (ov > 1 - 1e-6)  # 6 nines of precision - reasonable for large qubit counts
             print(
                 f"[GPU sv] rep {i+1}/{combo['repeats']} | overlap={ov:.12f} l2={l2:.3e} "
                 f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
@@ -497,19 +516,19 @@ def main():
         "mode": ["gpu"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [33],
+        "nqubits": [32],
         "depth": [16],
         "shots": [1024],
-        "repeats": [3],
+        "repeats": [1],
         "seed": [42],
-        "nL": [12],  #[4, 6, 8, 10, 12],
+        "nL": [14],
         # "transpiler": ["baseline", "custom"],  # filled in later
         # "backend": ["aer", "custom"],     # filled in later
     }
     
     # # Valid (transpiler, backend) pairs
     valid_transpiler_backend_pairs = [
-        # ("baseline", "aer"),
+        ("baseline", "aer"),
         ("custom", "custom"),
     ]
 

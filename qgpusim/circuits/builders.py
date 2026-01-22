@@ -32,7 +32,7 @@ def build_circuit(circuit: str, n_qubits: int, depth: int, seed: int):
         return qc
 
     elif circuit == "qft":
-        qc = QFT(num_qubits=n_qubits, do_swaps=False)
+        qc = QFT(num_qubits=n_qubits, do_swaps=False).decompose()
         return qc
 
     else:

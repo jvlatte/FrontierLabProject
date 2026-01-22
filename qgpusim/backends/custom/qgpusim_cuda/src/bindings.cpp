@@ -922,10 +922,7 @@ public:
         for (int p_old = 0; p_old < num_qubits_; ++p_old) {
             int gq = layout_old[p_old];
             if (gq < 0 || gq >= num_qubits_) throw std::runtime_error("layout_old contains invalid qubit id");
-            int p_new = new_pos[gq];
-            if (p_new < 0) throw std::runtime_error("layout_old contains qubit not in layout_new");
-            map_old_to_new[p_old] = p_new;
-        }
+w        }
 
         cudaStream_t stream = get_tile_stream();
         
