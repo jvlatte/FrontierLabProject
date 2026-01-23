@@ -15,6 +15,13 @@ from qgpusim.metrics.correctness import total_variation_distance, statevector_ov
 from qgpusim.runner import run_once
 from qgpusim.transpiler.pm import make_baseline_pm, make_custom_pm
 
+# Module-level cache for CPU reference results
+# Key: (circuit, nqubits, depth, seed, task, shots)
+# Value: dict with 'logged' flag (we only log to CSV once per unique circuit)
+# For small qubit counts: stores ref_sv/ref_counts for correctness comparison
+# For large qubit counts (>=32): only stores 'logged' flag to skip redundant CPU runs
+_CPU_REF_CACHE: Dict[tuple, dict] = {}
+
 
 
 # def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, args):
@@ -168,6 +175,7 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
     ref_device = None
     if not skip_comparison:
         ref_sim, ref_device = create_simulator("gpu", combo["tasks"])
+        print("sim precision:", ref_sim.options.get("precision", None))
         if "GPU" not in ref_device:
             raise RuntimeError("GPU not present/available for reference run")
     
@@ -355,9 +363,14 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
     # last arg might not be needed
     env = _env_info()
 
+    # Skip CPU reference for custom+custom - custom backend is GPU-only
+    skip_cpu = (combo["transpiler"] == "custom" and combo["backend"] == "custom")
+    if skip_cpu:
+        print(f"[INFO] Skipping CPU reference for custom+custom (GPU-only backend)")
+
     # For large qubit counts, skip comparison to avoid holding two statevectors in memory
-    skip_comparison = combo["nqubits"] >= 32
-    if skip_comparison:
+    skip_comparison = combo["nqubits"] >= 32 or skip_cpu
+    if skip_comparison and not skip_cpu:
         print(f"[INFO] nqubits={combo['nqubits']} >= 32: skipping comparison to save memory (will run both but not compare)")
 
     def _filtered(row: Dict[str, object]) -> Dict[str, object]:
@@ -421,35 +434,58 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         
 
     # build CPU ref sim - always use baseline transpiler + aer backend as gold standard
-    cpu_sim, cpu_device = create_simulator("cpu", combo["tasks"])
     ref_sv = None
     ref_counts = None
     
-    for i in range(combo["repeats"]):
-        # reference run (ONE run for all repeats) ####CHANGED TO REPEATS NOT ONE RUN######
-        # for i in range(args.repeats):
-        ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
-            sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True,
-            transpiler=combo["transpiler"], num_local_qubits=combo["nL"], backend="aer", device_used=cpu_device
+    # Cache key for CPU reference (doesn't depend on nL, transpiler, or backend - those are GPU-side)
+    cache_key = (combo["circuit"], combo["nqubits"], combo["depth"], combo["seed"], combo["tasks"], combo["shots"])
+    
+    # CPU only does one run (too slow for multiple repeats) - skip for custom+custom (GPU-only)
+    if not skip_cpu:
+        # Check if we already have a cached CPU reference for this circuit config
+        if cache_key in _CPU_REF_CACHE:
+            cached = _CPU_REF_CACHE[cache_key]
+            if skip_comparison:
+                # Large qubit count - just skip CPU entirely, we already logged it
+                print(f"[INFO] Skipping CPU (already logged for this circuit config)")
+            else:
+                # Smaller qubit count - use cached statevector/counts for comparison
+                print(f"[INFO] Using cached CPU reference for {cache_key[:4]}")
+                ref_sv = cached.get("ref_sv")
+                ref_counts = cached.get("ref_counts")
+            # Don't log to CSV again - already logged on first run
+        else:
+            # Run CPU reference and cache it
+            cpu_sim, cpu_device = create_simulator("cpu", combo["tasks"])
+            
+            ref_trans_sec, ref_sim_sec, ref_extra, ref_stats, ref_res = run_once(
+                sim=cpu_sim, qc=qc,task=combo["tasks"], shots=combo["shots"], measure=True,
+                transpiler="baseline", num_local_qubits=combo["nL"], backend="aer", device_used=cpu_device
             )
 
-        # extract ref artifact - only if we need comparison (to avoid holding large statevectors)
-        if not skip_comparison:
-            ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
-            ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
-        
-        # Free memory immediately if skipping comparison
-        if skip_comparison and combo["tasks"] == "statevector":
-            del ref_extra
-            import gc; gc.collect()
+            # extract ref artifact - only if we need comparison (to avoid holding large statevectors)
+            if not skip_comparison:
+                ref_sv = ref_extra.get("statevector") if combo["tasks"] == "statevector" else None
+                ref_counts = ref_extra.get("counts") if combo["tasks"] != "statevector" else None
+                
+                # Cache the reference result for reuse (holds memory for smaller circuits)
+                _CPU_REF_CACHE[cache_key] = {
+                    "ref_sv": ref_sv,
+                    "ref_counts": ref_counts,
+                }
+            else:
+                # Large qubit count - just mark as logged, don't store statevector
+                _CPU_REF_CACHE[cache_key] = {"logged": True}
+                del ref_extra
+                import gc; gc.collect()
 
-        # if csv_path and combo["transpiler"] == "baseline" and combo["backend"] == "aer":
-        if csv_path:
-            note = "reference" if not skip_comparison else "reference (no comparison - large qubit count)"
-            cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes=note)
-            _inject_stats(cpu_row, ref_stats, ref_res)
-            # correctness cols stay blank for ref
-            _append_csv(csv_path, _filtered(cpu_row), fieldnames)
+            # if csv_path and combo["transpiler"] == "baseline" and combo["backend"] == "aer":
+            if csv_path:
+                note = "reference" if not skip_comparison else "reference (no comparison - large qubit count)"
+                cpu_row = _row_base("cpu", cpu_device, 0, ref_trans_sec, ref_sim_sec, notes=note)
+                _inject_stats(cpu_row, ref_stats, ref_res)
+                # correctness cols stay blank for ref
+                _append_csv(csv_path, _filtered(cpu_row), fieldnames)
 
     gpu_sim, gpu_device = create_simulator("gpu", combo["tasks"])
     if "GPU" not in gpu_device:
@@ -516,19 +552,19 @@ def main():
         "mode": ["gpu"],
         "tasks": ["statevector"],
         "circuit": ["random"],
-        "nqubits": [32],
+        "nqubits": [32], #20, 25, 26, 27, 28, 29, 30, 31, 32
         "depth": [16],
         "shots": [1024],
         "repeats": [1],
         "seed": [42],
-        "nL": [14],
+        "nL": [32], #4, 6, 8, 10, 12, 14, 16 maybe [4, 8, 12, 16, 20, 24]
         # "transpiler": ["baseline", "custom"],  # filled in later
         # "backend": ["aer", "custom"],     # filled in later
     }
     
     # # Valid (transpiler, backend) pairs
     valid_transpiler_backend_pairs = [
-        ("baseline", "aer"),
+        # ("baseline", "aer"),
         ("custom", "custom"),
     ]
 

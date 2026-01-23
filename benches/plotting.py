@@ -591,32 +591,68 @@ def plot_kernel_launches_comparison(df, outdir):
         # Custom backend (gpu + custom + custom)
         custom_sub = sub[(sub['transpiler'] == 'custom') & (sub['backend'] == 'custom')]
         if not custom_sub.empty:
-            # Kernel launches (should be 0 or very low for graphed mode)
-            custom_med = (
-                custom_sub
-                .groupby('nqubits', as_index=False)['num_kernel_launches']
-                .median()
-                .sort_values('nqubits')
-            )
-            if not custom_med.empty:
-                plt.plot(custom_med['nqubits'], custom_med['num_kernel_launches'],
-                         marker='s', linewidth=2, markersize=8,
-                         label='gpu + custom (graphed) - kernel launches')
-                plotted_any = True
+            # --- Pick best nL for each nqubits (min total_s) ---
+            if 'nL' in custom_sub.columns and custom_sub['nL'].notna().any() and 'total_s' in custom_sub.columns:
+                # median per (nL, nqubits) for total_s to determine best nL
+                med_by_nL = (
+                    custom_sub.groupby(['nL', 'nqubits'], as_index=False)
+                    .agg({'total_s': 'median', 'num_kernel_launches': 'median', 
+                          **({'num_graph_replays': 'median'} if 'num_graph_replays' in custom_sub.columns else {})})
+                )
+                # Find best nL for each nqubits (min total_s)
+                idx_best = med_by_nL.groupby('nqubits')['total_s'].idxmin()
+                best_rows = med_by_nL.loc[idx_best].sort_values('nqubits')
+                
+                # Plot kernel launches for best nL
+                if not best_rows.empty:
+                    line, = plt.plot(best_rows['nqubits'], best_rows['num_kernel_launches'],
+                             marker='s', linewidth=2, markersize=8,
+                             label='gpu + custom (best nL) - kernel launches')
+                    plotted_any = True
+                    
+                    # Annotate each point with the best nL value
+                    for _, row in best_rows.iterrows():
+                        plt.annotate(f"nL={int(row['nL'])}",
+                                     xy=(row['nqubits'], row['num_kernel_launches']),
+                                     xytext=(5, 5),
+                                     textcoords='offset points',
+                                     fontsize=8,
+                                     color=line.get_color())
 
-            # Graph replays (this is what custom actually does)
-            if 'num_graph_replays' in custom_sub.columns:
-                graph_med = (
+                # Graph replays for best nL
+                if 'num_graph_replays' in best_rows.columns and best_rows['num_graph_replays'].sum() > 0:
+                    line2, = plt.plot(best_rows['nqubits'], best_rows['num_graph_replays'],
+                             marker='^', linewidth=2, markersize=8,
+                             label='gpu + custom (best nL) - graph replays')
+                    plotted_any = True
+            else:
+                # Fallback: aggregate all nL values
+                # Kernel launches (should be 0 or very low for graphed mode)
+                custom_med = (
                     custom_sub
-                    .groupby('nqubits', as_index=False)['num_graph_replays']
+                    .groupby('nqubits', as_index=False)['num_kernel_launches']
                     .median()
                     .sort_values('nqubits')
                 )
-                if not graph_med.empty and graph_med['num_graph_replays'].sum() > 0:
-                    plt.plot(graph_med['nqubits'], graph_med['num_graph_replays'],
-                             marker='^', linewidth=2, markersize=8,
-                             label='gpu + custom (graphed) - graph replays')
+                if not custom_med.empty:
+                    plt.plot(custom_med['nqubits'], custom_med['num_kernel_launches'],
+                             marker='s', linewidth=2, markersize=8,
+                             label='gpu + custom (graphed) - kernel launches')
                     plotted_any = True
+
+                # Graph replays (this is what custom actually does)
+                if 'num_graph_replays' in custom_sub.columns:
+                    graph_med = (
+                        custom_sub
+                        .groupby('nqubits', as_index=False)['num_graph_replays']
+                        .median()
+                        .sort_values('nqubits')
+                    )
+                    if not graph_med.empty and graph_med['num_graph_replays'].sum() > 0:
+                        plt.plot(graph_med['nqubits'], graph_med['num_graph_replays'],
+                                 marker='^', linewidth=2, markersize=8,
+                                 label='gpu + custom (graphed) - graph replays')
+                        plotted_any = True
 
         if not plotted_any:
             plt.close()

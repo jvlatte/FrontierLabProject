@@ -117,11 +117,20 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
                 sv = Statevector(vec)
                 # Keep as numpy array - avoid slow Python list conversion
                 extra = {"statevector": np.asarray(sv.data, dtype=np.complex64)}
+                # Free Aer's internal buffers to match custom backend's memory cleanup
+
+                del sv, vec
             except Exception:
                 extra = {"statevector": None}
         else:
             counts = result.get_counts(tqc)
             extra = {"counts": counts}
+        
+        # Explicit cleanup of Aer result object and garbage collection
+        # This ensures fair RSS comparison with custom backend which also frees memory
+        del result
+        import gc
+        gc.collect()
     
     res_peak = _max_usage(res_peak, _mem_snapshot())
 

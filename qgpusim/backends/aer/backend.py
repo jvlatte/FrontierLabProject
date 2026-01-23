@@ -25,7 +25,7 @@ def create_simulator(
     # Let Aer defaults decide precision unless you need match precision exactly.
     # (If you want apples-to-apples vs your custom implementation, pass "single"/"double")
     if precision is not None:
-        sim_options["precision"] = precision
+        sim_options["precision"] = "single"
 
     device_used = "CPU"
     if backend == "cpu":
