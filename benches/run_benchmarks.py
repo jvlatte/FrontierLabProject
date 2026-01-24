@@ -549,22 +549,22 @@ def main():
     #   (custom, custom) - tiled approach with custom backend
     
     params = {
-        "mode": ["gpu"],
+        "mode": ["compare"],
         "tasks": ["statevector"],
-        "circuit": ["random"],
-        "nqubits": [32], #20, 25, 26, 27, 28, 29, 30, 31, 32
+        "circuit": ["random", "ghz", "qft"],
+        "nqubits": [20, 25, 26, 27, 28, 29, 30, 31, 32], #20, 25, 26, 27, 28, 29, 30, 31, 32
         "depth": [16],
         "shots": [1024],
-        "repeats": [1],
+        "repeats": [3],
         "seed": [42],
-        "nL": [32], #4, 6, 8, 10, 12, 14, 16 maybe [4, 8, 12, 16, 20, 24]
+        "nL": [4, 8, 12, 16, 20, 24, 28], #4, 6, 8, 10, 12, 14, 16 maybe [4, 8, 12, 16, 20, 24]
         # "transpiler": ["baseline", "custom"],  # filled in later
         # "backend": ["aer", "custom"],     # filled in later
     }
     
     # # Valid (transpiler, backend) pairs
     valid_transpiler_backend_pairs = [
-        # ("baseline", "aer"),
+        ("baseline", "aer"),
         ("custom", "custom"),
     ]
 

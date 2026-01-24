@@ -585,12 +585,24 @@ def plot_kernel_launches_comparison(df, outdir):
             if not aer_med.empty:
                 plt.plot(aer_med['nqubits'], aer_med['num_kernel_launches'],
                          marker='o', linewidth=2, markersize=8,
-                         label='gpu + baseline (Aer) - kernel launches')
+                         label='gpu + baseline (Aer) - CPU-side kernel launches')
                 plotted_any = True
 
         # Custom backend (gpu + custom + custom)
         custom_sub = sub[(sub['transpiler'] == 'custom') & (sub['backend'] == 'custom')]
         if not custom_sub.empty:
+
+            # --- AVG across all nL (per nqubits)  ---
+            ycol = 'num_graph_replays' if 'num_graph_replays' in custom_sub.columns else 'num_kernel_launches'
+            avg_all = (custom_sub.groupby('nqubits', as_index=False)[ycol].mean().sort_values('nqubits'))
+
+            if not avg_all.empty and avg_all[ycol].sum() > 0:
+                plt.plot(avg_all['nqubits'], avg_all[ycol],
+                         marker='s', linewidth=2, markersize=8,
+                         label=f'gpu + custom (avg all nL) - CPU-side kernel launches')
+                plotted_any = True
+
+
             # --- Pick best nL for each nqubits (min total_s) ---
             if 'nL' in custom_sub.columns and custom_sub['nL'].notna().any() and 'total_s' in custom_sub.columns:
                 # median per (nL, nqubits) for total_s to determine best nL
@@ -602,44 +614,14 @@ def plot_kernel_launches_comparison(df, outdir):
                 # Find best nL for each nqubits (min total_s)
                 idx_best = med_by_nL.groupby('nqubits')['total_s'].idxmin()
                 best_rows = med_by_nL.loc[idx_best].sort_values('nqubits')
-                
-                # Plot kernel launches for best nL
-                if not best_rows.empty:
-                    line, = plt.plot(best_rows['nqubits'], best_rows['num_kernel_launches'],
-                             marker='s', linewidth=2, markersize=8,
-                             label='gpu + custom (best nL) - kernel launches')
-                    plotted_any = True
-                    
-                    # Annotate each point with the best nL value
-                    for _, row in best_rows.iterrows():
-                        plt.annotate(f"nL={int(row['nL'])}",
-                                     xy=(row['nqubits'], row['num_kernel_launches']),
-                                     xytext=(5, 5),
-                                     textcoords='offset points',
-                                     fontsize=8,
-                                     color=line.get_color())
 
                 # Graph replays for best nL
                 if 'num_graph_replays' in best_rows.columns and best_rows['num_graph_replays'].sum() > 0:
                     line2, = plt.plot(best_rows['nqubits'], best_rows['num_graph_replays'],
                              marker='^', linewidth=2, markersize=8,
-                             label='gpu + custom (best nL) - graph replays')
+                             label='gpu + custom (best nL) - CPU-side kernel launches')
                     plotted_any = True
             else:
-                # Fallback: aggregate all nL values
-                # Kernel launches (should be 0 or very low for graphed mode)
-                custom_med = (
-                    custom_sub
-                    .groupby('nqubits', as_index=False)['num_kernel_launches']
-                    .median()
-                    .sort_values('nqubits')
-                )
-                if not custom_med.empty:
-                    plt.plot(custom_med['nqubits'], custom_med['num_kernel_launches'],
-                             marker='s', linewidth=2, markersize=8,
-                             label='gpu + custom (graphed) - kernel launches')
-                    plotted_any = True
-
                 # Graph replays (this is what custom actually does)
                 if 'num_graph_replays' in custom_sub.columns:
                     graph_med = (
@@ -651,7 +633,7 @@ def plot_kernel_launches_comparison(df, outdir):
                     if not graph_med.empty and graph_med['num_graph_replays'].sum() > 0:
                         plt.plot(graph_med['nqubits'], graph_med['num_graph_replays'],
                                  marker='^', linewidth=2, markersize=8,
-                                 label='gpu + custom (graphed) - graph replays')
+                                 label='gpu + custom (graphed) - CPU-side kernel launches')
                         plotted_any = True
 
         if not plotted_any:
@@ -660,7 +642,7 @@ def plot_kernel_launches_comparison(df, outdir):
 
         plt.xlabel('Number of Qubits', fontsize=12)
         plt.ylabel('Count', fontsize=12)
-        plt.title(f'Kernel Launches vs nqubits — {group}\n(Aer sequential vs Custom graphed)', fontsize=14)
+        plt.title(f'CPU-side Kernel Launches vs nqubits — {group}\n(Aer sequential vs Custom graphed)', fontsize=14)
         plt.legend(fontsize=10)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
@@ -680,10 +662,34 @@ def plot_kernel_launches_comparison(df, outdir):
             if sub.empty:
                 continue
 
+            # # Prepare data for bar chart
+            # aer_launches = []
+            # custom_launches = []
+            # custom_replays = []
+            # labels = []
+            # custom_best = []
+            # custom_avg = []
+
+            # for nq in sample_nqubits:
+            #     nq_sub = sub[sub['nqubits'] == nq]
+            #     if nq_sub.empty:
+            #         continue
+
+            #     aer_row = nq_sub[(nq_sub['transpiler'] == 'baseline') & (nq_sub['backend'] == 'aer')]
+            #     custom_row = nq_sub[(nq_sub['transpiler'] == 'custom') & (nq_sub['backend'] == 'custom')]
+
+            #     aer_val = aer_row['num_kernel_launches'].median() if not aer_row.empty else 0
+            #     custom_val = custom_row['num_kernel_launches'].median() if not custom_row.empty else 0
+            #     replay_val = custom_row['num_graph_replays'].median() if (not custom_row.empty and 'num_graph_replays' in custom_row.columns) else 0
+
+            #     aer_launches.append(aer_val)
+            #     custom_launches.append(custom_val)
+            #     custom_replays.append(replay_val)
+            #     labels.append(f'n={nq}')
             # Prepare data for bar chart
             aer_launches = []
-            custom_launches = []
-            custom_replays = []
+            custom_best = []      # best nL (min total_s)
+            custom_avg = []       # avg across all nL
             labels = []
 
             for nq in sample_nqubits:
@@ -692,15 +698,46 @@ def plot_kernel_launches_comparison(df, outdir):
                     continue
 
                 aer_row = nq_sub[(nq_sub['transpiler'] == 'baseline') & (nq_sub['backend'] == 'aer')]
-                custom_row = nq_sub[(nq_sub['transpiler'] == 'custom') & (nq_sub['backend'] == 'custom')]
+                custom_rows = nq_sub[(nq_sub['transpiler'] == 'custom') & (nq_sub['backend'] == 'custom')]
 
+                # Aer: kernel launches
                 aer_val = aer_row['num_kernel_launches'].median() if not aer_row.empty else 0
-                custom_val = custom_row['num_kernel_launches'].median() if not custom_row.empty else 0
-                replay_val = custom_row['num_graph_replays'].median() if (not custom_row.empty and 'num_graph_replays' in custom_row.columns) else 0
+
+                # Custom metric: prefer graph replays, else kernel launches
+                if not custom_rows.empty:
+                    ycol = 'num_graph_replays' if 'num_graph_replays' in custom_rows.columns else 'num_kernel_launches'
+
+                    # --- avg across all nL (mean-of-median per nL, if nL exists) ---
+                    if 'nL' in custom_rows.columns and custom_rows['nL'].notna().any():
+                        med_per_nL = (
+                            custom_rows.groupby(['nL'], as_index=False)[ycol]
+                            .median()
+                        )
+                        avg_val = float(med_per_nL[ycol].mean()) if not med_per_nL.empty else 0
+                    else:
+                        avg_val = float(custom_rows[ycol].mean())
+
+                    # --- best nL: choose nL that minimizes total_s, then take its median ycol ---
+                    if 'nL' in custom_rows.columns and custom_rows['nL'].notna().any() and 'total_s' in custom_rows.columns:
+                        med_by_nL = (
+                            custom_rows.groupby(['nL'], as_index=False)
+                            .agg({ 'total_s': 'median', ycol: 'median' })
+                        )
+                        if not med_by_nL.empty:
+                            best_idx = med_by_nL['total_s'].idxmin()
+                            best_val = float(med_by_nL.loc[best_idx, ycol])
+                        else:
+                            best_val = 0
+                    else:
+                        # fallback: just use median across all rows
+                        best_val = float(custom_rows[ycol].median())
+                else:
+                    avg_val = 0
+                    best_val = 0
 
                 aer_launches.append(aer_val)
-                custom_launches.append(custom_val)
-                custom_replays.append(replay_val)
+                custom_best.append(best_val)
+                custom_avg.append(avg_val)
                 labels.append(f'n={nq}')
 
             if not labels:
@@ -710,9 +747,15 @@ def plot_kernel_launches_comparison(df, outdir):
             width = 0.25
 
             fig, ax = plt.subplots(figsize=(10, 6))
-            bars1 = ax.bar(x - width, aer_launches, width, label='Aer (kernel launches)', color='#1f77b4')
-            bars2 = ax.bar(x, custom_launches, width, label='Custom (kernel launches)', color='#ff7f0e')
-            bars3 = ax.bar(x + width, custom_replays, width, label='Custom (graph replays)', color='#2ca02c')
+            # bars1 = ax.bar(x - width, aer_launches, width, label='Aer (CPU-side kernel launches)', color='#1f77b4')
+            # bars3 = ax.bar(x + width, custom_replays, width, label='Custom (CPU-side kernel launches)', color='#2ca02c')
+            bars1 = ax.bar(x - width, aer_launches, width,
+                           label='Aer (kernel launches)', color='#1f77b4')
+            bars2 = ax.bar(x, custom_avg, width,
+                           label='Custom avg across nL (graph replays)', color='#ff7f0e')
+            bars3 = ax.bar(x + width, custom_best, width,
+                           label='Custom best nL (graph replays)', color='#2ca02c')
+
 
             ax.set_xlabel('Number of Qubits', fontsize=12)
             ax.set_ylabel('Count', fontsize=12)
