@@ -41,6 +41,11 @@ As program runs, results are appended to the csv file located in the results fol
 python3 -B -m benches.plotting
 ```
 
+To compile C++/CUDA file, go into `build` folder (/qgpusim/backends/custom/qgpusim_cuda/build) and run the MakeFile (`make` should work out)
+```
+cd .../qgpusim/backends/custom/qgpusim_cuda/build && make
+```
+
 
 ## Code details
 To test different parameter values, tweak the variable values `params` directly under `main()` function.
