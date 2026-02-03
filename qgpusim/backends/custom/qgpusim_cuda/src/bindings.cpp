@@ -141,64 +141,6 @@ public:
         other.tile_stream_ = nullptr;
     }
 
-
-    // // Apply a whole tile described by a list of tuples:
-    // //  1Q: ("1q", q0, U_dev)
-    // //  2Q: ("2q", q0, q1, U_dev)
-    // // Optional (later): ("diag1q", q0, phase0, phase1)
-    // void apply_tile_dev(py::list ops) {
-    //     // Releasing the GIL helps if you’re calling this in tight loops
-    //     py::gil_scoped_release release;
-
-    //     const ssize_t nops = py::len(ops);
-
-    //     for (ssize_t i = 0; i < nops; ++i) {
-    //         py::handle h = ops[i];
-    //         py::tuple t = py::reinterpret_borrow<py::tuple>(h);
-    //         if (t.size() < 1) {
-    //             throw std::runtime_error("apply_tile_dev: empty tuple op descriptor");
-    //         }
-
-    //         // op type is a string: "1q" or "2q"
-    //         std::string kind = py::cast<std::string>(t[0]);
-
-    //         if (kind == "1q") {
-    //             // ("1q", q0, U_dev)
-    //             if (t.size() != 3) {
-    //                 throw std::runtime_error("apply_tile_dev: 1q expects ('1q', q0, U_dev)");
-    //             }
-    //             int q0 = py::cast<int>(t[1]);
-    //             py::object U_cupy = py::reinterpret_borrow<py::object>(t[2]);
-
-    //             if (q0 < 0 || q0 >= num_qubits_) throw std::runtime_error("apply_tile_dev: invalid q0");
-    //             cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
-    //             launch_apply_1q_gate(d_psi_, dU, num_qubits_, q0);
-    //             CUDA_CHECK_KERNEL();
-
-    //         } else if (kind == "2q") {
-    //             // ("2q", q0, q1, U_dev)
-    //             if (t.size() != 4) {
-    //                 throw std::runtime_error("apply_tile_dev: 2q expects ('2q', q0, q1, U_dev)");
-    //             }
-    //             int q0 = py::cast<int>(t[1]);
-    //             int q1 = py::cast<int>(t[2]);
-    //             py::object U_cupy = py::reinterpret_borrow<py::object>(t[3]);
-
-    //             if (q0 < 0 || q0 >= num_qubits_ || q1 < 0 || q1 >= num_qubits_)
-    //                 throw std::runtime_error("apply_tile_dev: invalid q0/q1");
-    //             if (q0 == q1) throw std::runtime_error("apply_tile_dev: q0 == q1");
-
-    //             cuDoubleComplex* dU = get_cupy_ptr(U_cupy);
-    //             launch_apply_2q_gate(d_psi_, dU, num_qubits_, q0, q1);
-    //             CUDA_CHECK_KERNEL();
-
-    //         } else {
-    //             throw std::runtime_error("apply_tile_dev: unknown op kind: " + kind);
-    //         }
-    //     }
-    // }
-
-
     struct TileOp {
         int kind; // 1 = 1q, 2 = 2q
         int q0;
@@ -315,9 +257,6 @@ public:
         if (cached_graph_exec_ && matches_cached_signature(parsed)) {
             // Fast path: just update kernel node parameters and relaunch
             // The kernel pointers (dU) may have changed, but structure is same
-            // Unfortunately cudaGraphExecKernelNodeSetParams requires knowing
-            // the exact kernel params, which is complex. For now, invalidate cache
-            // if any dU pointer changed.
             bool can_reuse = true;
             for (size_t i = 0; i < parsed.size() && can_reuse; ++i) {
                 if (parsed[i].dU != cached_tile_signature_[i].dU) {
@@ -699,7 +638,7 @@ private:
 
 
 // ============================================================================
-// StatevectorF32 - Float32 (complex64) version for 2x memory savings
+// StatevectorF32 - Float32 (complex64) version
 // ============================================================================
 class StatevectorF32 {
 public:

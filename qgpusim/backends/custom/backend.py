@@ -7,6 +7,12 @@ import numpy as np
 import cupy as cp
 import time
 
+
+"""
+Module implementing a custom GPU backend for quantum circuit simulation using CuPy
+or native CUDA kernels via pybind11.
+"""
+
 # LRU-bounded cache for gate matrices
 # (name, params) -> {"U_host": np.ndarray, "U_dev": cp.ndarray}
 MAX_CACHE_SIZE = 512
@@ -227,8 +233,6 @@ except ImportError as e:
     print("Falling back to CuPy-based implementation")
 
 
-# Unified gate matrix access - use get_gate_matrix_host() or get_gate_matrix_dev()
-
 
 # Native module wrapper functions (using pybind11 compiled CUDA)
 def apply_1q_gate_native(psi_cupy, U_numpy, q, num_qubits):
@@ -446,13 +450,6 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
                 elif k == 2:
                     tile_ops.append(("2q", local_qubits[0], local_qubits[1], U_dev))
 
-                # if U_host.shape == (2, 2) and len(local_qubits) == 1:
-                #     # sv.apply_1q_dev(local_qubits[0], U_dev)
-                #     tile_ops.append(("1q", local_qubits[0], U_dev))
-                # elif U_host.shape == (4, 4) and len(local_qubits) == 2:
-                #     # sv.apply_2q_dev(local_qubits[0], local_qubits[1], U_dev)
-                #     tile_ops.append(("2q", local_qubits[0], local_qubits[1], U_dev))
-
             if tile_ops:
                 # Apply gate fusion if enabled
                 if enable_fusion:
@@ -504,27 +501,6 @@ def run_custom_backend(qc: QuantumCircuit, tile_plan: List[Tile], task: str, sho
             avoided_launches = 0
             t_launch_overhead_saved_us = 0.0
 
-        print("==== TILING METRICS ====")
-        print(f"num_qubits: {num_qubits}")
-        print(f"num_tiles: {num_tiles}")
-        print(f"num_gates: {num_gates}")
-        if enable_fusion:
-            print(f"num_fused_ops: {num_fused_ops} (fusion ratio: {fusion_ratio:.2f}x)")
-        print(f"avg_tile_size: {avg_tile_size:.2f}")
-        print(f"num_reorders: {num_reorders}")
-        print(f"t_perm (CPU):  {t_perm:.6f} s")
-        print(f"t_apply (CPU): {t_apply:.6f} s")
-        print(f"t_sync (GPU):  {t_sync:.6f} s ({(t_sync/t_total*100):.1f}%)")
-        print(f"t_total: {t_total:.6f} s")
-        
-        print("==== KERNEL LAUNCH OVERHEAD ====")
-        print(f"tile_mode: {tile_mode}")
-        print(f"num_kernel_launches: {num_kernel_launches}")
-        print(f"num_graph_replays: {num_graph_replays}")
-        if tile_mode in ("graphed", "cooperative"):
-            print(f"avoided_launches: {avoided_launches} (vs sequential)")
-            print(f"est_overhead_saved: {t_launch_overhead_saved_us:.1f} μs ({t_launch_overhead_saved_us/1000:.3f} ms)")
-        
         # Build metrics dictionary for benchmark tracking
         metrics = {
             "num_tiles": num_tiles,

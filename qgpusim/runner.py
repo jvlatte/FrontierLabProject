@@ -12,6 +12,15 @@ from .backends.custom.backend import run_custom_backend
 def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measure: bool, 
              transpiler: str = "baseline", num_local_qubits: int = 4, backend: str = "aer", device_used: str = "CPU",
              save_sv: bool = True):
+    """
+    Run a single simulation with given parameters, collect metrics.
+    Returns:
+    - transpile_s: time spent in transpilation
+    - simulate_s: time spent in simulation
+    - extra: dict with extra results (statevector, counts)
+    - stats: dict with circuit statistics
+    - res_usage: dict with resource usage metrics
+    """
     print(f"the transpiler is: {transpiler}")
     if task == "sampling" and measure:
         qc_run = qc.copy()
@@ -39,14 +48,11 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
             pm, lqr_pass = make_custom_pm(num_local_qubits)
             tqc = pm.run(tqc)
             tiling_plan = lqr_pass.property_set.get("flat_tiling_plan", None)
-            # # code before adding on to baseline transpiler
-            # pm = make_custom_pm()
-            # tqc = pm.run(qc_sv)
         else:
             print("running through baseline transpiler")
             # baseline: regular qiskit transpile
-            # tqc = transpile(qc_sv, sim, optimization_level=0,)
-            tqc = qc_sv
+            tqc = transpile(qc_sv, sim, optimization_level=0,)
+            # tqc = qc_sv
     else:
         if transpiler == "custom":
             pm, lqr_pass = make_custom_pm(num_local_qubits)
@@ -83,23 +89,11 @@ def run_once(sim: AerSimulator, qc: QuantumCircuit, task: str, shots: int, measu
 
             simulate_t0 = time.perf_counter()
             psi, custom_metrics = run_custom_backend(tqc, tiling_plan, task, shots, tile_mode="graphed", use_float32=True, enable_fusion=True)
-            # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
             result = None  # placeholder
-            # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
             simulate_s = time.perf_counter() - simulate_t0
             print("ran with custom gpu backend")
         
     res_peak = _max_usage(res_peak, _mem_snapshot())
-
-
-
-    # ----------------------------- PART THAT WAS COMMENTED OUT TO TRY NEW THINGS ----------------------------------------
-
-    # simulate_t0 = time.perf_counter()
-    # result = sim.run(tqc, shots=shots if task == "sampling" else None).result()
-    # simulate_s = time.perf_counter() - simulate_t0
-
-    # ----------------------------- PART THAT WAS COMMENTED OUT TO TRY NEW THINGS ----------------------------------------
 
     # get the results
     if result is None:

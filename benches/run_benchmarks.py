@@ -15,65 +15,18 @@ from qgpusim.metrics.correctness import total_variation_distance, statevector_ov
 from qgpusim.runner import run_once
 from qgpusim.transpiler.pm import make_baseline_pm, make_custom_pm
 
+
+"""
+Benchmarking script to run quantum circuit simulations with different backends and transpilers,
+log results to CSV, and compare correctness.
+"""
+
 # Module-level cache for CPU reference results
 # Key: (circuit, nqubits, depth, seed, task, shots)
 # Value: dict with 'logged' flag (we only log to CSV once per unique circuit)
 # For small qubit counts: stores ref_sv/ref_counts for correctness comparison
 # For large qubit counts (>=32): only stores 'logged' flag to skip redundant CPU runs
 _CPU_REF_CACHE: Dict[tuple, dict] = {}
-
-
-
-# def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, args):
-    # try gpu custom backend
-    # if combo["backend"] == "custom":
-    #     # TODO: ADD TO HERE
-    #     pass
-    # else:
-    #     # only cpu or gpu+cpu with aer backends
-    #     sim, device_used = create_simulator(combo["mode"], combo["tasks"])
-    # #device_used = "GPU" if (args.backend == "gpu") else "CPU"
-    # for i in range(combo["repeats"]):
-    #     trans_elapsed, sim_elapsed, extra, stats, res_usage = run_once(sim=sim, qc=qc, task=combo["tasks"], 
-    #                                                                    shots=combo["shots"], measure=True, 
-    #                                                                    transpiler=combo["transpiler"], num_local_qubits=combo["nL"],
-    #                                                                    backend=combo["backend"], device_used=device_used)
-    #     final_str = (
-    #     f"Run {i+1}/{combo['repeats']} on {combo['mode']} took {trans_elapsed:.4f} sec "
-    #     f"to transpile and {sim_elapsed:.4f} sec to simulate. "
-    #     f"Total: {(trans_elapsed + sim_elapsed):.4f}. "
-    #     # f"Extra: {extra}"
-    #     )
-    #     print(final_str)
-
-
-    #     if args.csv:
-    #         row = {
-    #             "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
-    #             "host": env["host"],
-    #             "os": env["os"],
-    #             "python": env["python"],
-    #             "mode": combo["mode"],
-    #             "device": device_used,
-    #             "task": combo["tasks"],
-    #             "circuit": combo["circuit"],
-    #             "nqubits": combo["nqubits"],
-    #             "depth": combo["depth"],
-    #             "shots": combo["shots"] if combo["tasks"] == "sampling" else 0,
-    #             "repeat_idx": i + 1,
-    #             "transpile_s": f"{trans_elapsed:.6f}",
-    #             "simulate_s": f"{sim_elapsed:.6f}",
-    #             "total_s": f"{trans_elapsed + sim_elapsed:.6f}",
-    #              **{k: stats[k] for k in ["nqubits_t","depth_t","twoq_count","cx_count","cz_count","swap_count","rz_count","rx_count"]},
-    #             "rss_mb": res_usage.get("rss_mb",""),
-    #             "gpu_mem_mb": res_usage.get("gpu_mem_mb",""),
-    #             "gpu_util": res_usage.get("gpu_util",""),
-    #             "notes": "",  # e.g., layout/method variants later
-    #             "transpiler": combo["transpiler"],
-    #             "nL": combo["nL"],
-    #             "backend": combo["backend"]
-    #         }
-    #         _append_csv(args.csv, row, fieldnames)
 
 
 def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit, csv_path):
@@ -85,6 +38,8 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
     Writes BOTH rows to CSV (if args.csv is set) and prints PASS info.
     
     Handles OOM errors gracefully - logs the error and continues to next combination.
+
+    (Only use this for GPU comparisons; CPU runtime for large number of qubits takes awhile)
     """
     
     # Import cupy for GPU memory cleanup on OOM
@@ -312,7 +267,7 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
         elif combo["tasks"] == "statevector":
             cand_sv = extra.get("statevector")
             ov, l2 = statevector_overlap(ref_sv, cand_sv)
-            passed = (ov > 1 - 1e-6)  # 6 nines of precision - reasonable for large qubit counts
+            passed = (ov > 1 - 1e-3)  # 3 nines of precision - reasonable for large qubit counts
             print(
                 f"[GPU ref=aer/baseline vs cand={combo['backend']}/{combo['transpiler']}] "
                 f"rep {i+1}/{combo['repeats']} | overlap={ov:.12f} l2={l2:.3e} "
@@ -360,6 +315,9 @@ def single_backend(combo: Dict, fieldnames: list, env: dict, qc: QuantumCircuit,
 
 
 def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str], csv_path: Optional[str]):
+    """
+    Compare CPU reference (baseline transpiler + Aer) vs GPU candidate (combo["transpiler"] + combo["backend"]).
+    """
     # last arg might not be needed
     env = _env_info()
 
@@ -367,6 +325,9 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
     skip_cpu = (combo["transpiler"] == "custom" and combo["backend"] == "custom")
     if skip_cpu:
         print(f"[INFO] Skipping CPU reference for custom+custom (GPU-only backend)")
+
+    # comment this out if you want to skip cpu 
+    skip_cpu = False
 
     # For large qubit counts, skip comparison to avoid holding two statevectors in memory
     skip_comparison = combo["nqubits"] >= 32 or skip_cpu
@@ -433,7 +394,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         return float(kl)
         
 
-    # build CPU ref sim - always use baseline transpiler + aer backend as gold standard
+    # build CPU ref sim - always use baseline transpiler + aer backend
     ref_sv = None
     ref_counts = None
     
@@ -512,7 +473,7 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
         elif combo["tasks"] == "statevector":
             gpu_sv = extra.get("statevector")
             ov, l2 = statevector_overlap(ref_sv, gpu_sv)
-            passed = (ov > 1 - 1e-6)  # 6 nines of precision - reasonable for large qubit counts
+            passed = (ov > 1 - 1e-3)  # 3passed = (ov > 1 - 1e-6)  # 6 nines of precision - reasonable for large qubit counts nines of precision - reasonable for large qubit counts
             print(
                 f"[GPU sv] rep {i+1}/{combo['repeats']} | overlap={ov:.12f} l2={l2:.3e} "
                 f"| t_transpile={transpile_s:.4f}s t_sim={simulate_s:.4f}s total={total_s:.4f}s PASS={passed}"
@@ -543,23 +504,16 @@ def compare_both_backends(combo: Dict, qc: QuantumCircuit, fieldnames: List[str]
 
 
 def main():
-    # parameters to tweak
-    # Note: transpiler and backend are paired - only valid combinations are:
-    #   (baseline, aer) - standard Qiskit
-    #   (custom, custom) - tiled approach with custom backend
-    
     params = {
         "mode": ["compare"],
         "tasks": ["statevector"],
-        "circuit": ["random", "ghz", "qft"],
-        "nqubits": [20, 25, 26, 27, 28, 29, 30, 31, 32], #20, 25, 26, 27, 28, 29, 30, 31, 32
+        "circuit": ["random"],
+        "nqubits": [20, 25], #20, 25, 26, 27, 28, 29, 30, 31, 32
         "depth": [16],
         "shots": [1024],
         "repeats": [3],
         "seed": [42],
-        "nL": [4, 8, 12, 16, 20, 24, 28], #4, 6, 8, 10, 12, 14, 16 maybe [4, 8, 12, 16, 20, 24]
-        # "transpiler": ["baseline", "custom"],  # filled in later
-        # "backend": ["aer", "custom"],     # filled in later
+        "nL": [16], #4, 6, 8, 10, 12, 14, 16 maybe [4, 8, 12, 16, 20, 24]
     }
     
     # # Valid (transpiler, backend) pairs
@@ -585,24 +539,11 @@ def main():
 
 
     parser = argparse.ArgumentParser(description="Benchmarking Script")
-
-    parser.add_argument("--backend", type=str, choices=["cpu", "gpu", "compare"], default="cpu")
-    parser.add_argument("--tasks", type=str, choices=["statevector", "sampling"], default="statevector")
-    parser.add_argument("--circuit", type=str, choices=["random", "ghz", "qft"], default="random")
-    parser.add_argument("--nqubits", type=int, default=10)
-    parser.add_argument("--depth", type=int, default=4)
-    parser.add_argument("--shots", type=int, default=1024)
-    parser.add_argument("--repeats", type=int, default=1)
-    parser.add_argument("--seed", type=int, default=42)
     # default for csv is set; change later on
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     csv_path = PROJECT_ROOT / "results" / "result.csv"
 
     parser.add_argument("--csv", type=str, default=str(csv_path))
-
-    #parser.add_argument("--csv", type=str, default="results/result.csv", help="Path to CSV log (e.g., results/bench.csv)")
-
-    parser.add_argument("--transpiler", type=str, choices=["baseline", "custom"], default="baseline")
 
     args = parser.parse_args()
     

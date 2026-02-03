@@ -3,6 +3,9 @@ from qiskit.circuit.library import QFT
 import numpy as np
 import random
 
+"""
+Module to build test quantum circuits for benchmarking.
+"""
 
 def build_circuit(circuit: str, n_qubits: int, depth: int, seed: int):
     """builds test circuit

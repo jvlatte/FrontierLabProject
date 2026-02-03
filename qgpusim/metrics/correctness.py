@@ -38,7 +38,9 @@ def statevector_overlap(cpu_vec: Union[np.ndarray, List], gpu_vec: Union[np.ndar
     return float(overlap), float(l2)
     
 def total_variation_distance(counts_a: Dict[str, int], counts_b: Dict[str, int]) -> float:
-    """TVD between two empirical distributions from count dicts"""
+    """TVD between two empirical distributions from count dicts.
+    (This is for batch sampling correctness metric, so this function is
+    probably not needed)"""
     # look more into this; might not be needed
     keys = set(counts_a.keys()) | set(counts_b.keys())
     shots_a = sum(counts_a.values()) or 1

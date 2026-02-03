@@ -13,6 +13,10 @@ except Exception:
     print("pynvml not available")
     pynvml = None
 
+"""
+Module for collecting resource usage metrics during simulation.
+"""
+
 
 ###### new functions ######
 def _tqc_stats(tqc: QuantumCircuit) -> Dict[str, int]:
@@ -32,23 +36,6 @@ def _tqc_stats(tqc: QuantumCircuit) -> Dict[str, int]:
         "twoq_count": twoq,
         "total_gates": total_gates,
     }
-
-
-# def _mem_snapshot() -> Dict[str, float]:
-#     out = {"rss_mb": "", "gpu_mem_mb": "", "gpu_util": ""}
-#     if psutil:
-#         rss = psutil.Process(os.getpid()).memory_info().rss / (1024**2)
-#         out["rss_mb"] = f"{rss:.2f}"
-#     if pynvml:
-#         try:
-#             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-#             mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
-#             util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-#             out["gpu_mem_mb"] = f"{mem.used/1024**2:.2f}"
-#             out["gpu_util"] = f"{util.gpu}"
-#         except Exception:
-#             pass
-#     return out
 
 
 def _mem_snapshot() -> Dict[str, str]:
@@ -104,12 +91,12 @@ def _mem_snapshot() -> Dict[str, str]:
     return out
 
 
-
 def _to_float(x):
     try:
         return float(x)
     except Exception:
         return None
+
 
 def _max_usage(a, b):
     """

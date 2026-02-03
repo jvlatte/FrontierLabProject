@@ -4,7 +4,9 @@ from qiskit.dagcircuit import DAGCircuit, DAGOpNode
 from typing import List, Set, Dict, Tuple
 from dataclasses import dataclass
 
-# -----------HELPER CLASS-----------------
+"""
+Module defining custom transpiler passes for quantum circuit optimization.
+"""
 
 @dataclass
 class Tile:
@@ -77,50 +79,6 @@ class CancelSelfInversePairs(TransformationPass):
         print("ran through cancelselfinversepairs")
         return dag
     
-
-class QubitInteractionAnalysis(AnalysisPass):
-    """
-    Analysis pass that builds a weighted qubit-qubit interaction graph.
-
-    For every multi-qubit gate (e.g. CX, CZ, SWAP, etc.), we:
-      - find the indices of the involved qubits
-      - for each pair of involved qubits (i, j), i < j:
-            interactions[(i, j)] += 1
-
-    The result is stored in:
-        self.property_set["qubit_interaction_graph"]
-    as a dict mapping (i, j) -> weight (int).
-    """
-
-    def run(self, dag: DAGCircuit):
-        interactions = defaultdict(int)
-
-        # go through all operation nodes in topological order
-        for node in dag.topological_op_nodes():
-            qargs = node.qargs
-            if len(qargs) < 2:
-                continue  # only care about 2+ qubit gates
-
-            # get qubit indices in the circuit's global ordering
-            indices = []
-            for q in qargs:
-                bit_index = dag.find_bit(q).index
-                indices.append(bit_index)
-
-            # sort so (i, j) is canonical with i < j
-            indices.sort()
-
-            # for k-qubit gates, increment all pairwise edges
-            for i in range(len(indices)):
-                for j in range(i + 1, len(indices)):
-                    pair = (indices[i], indices[j])
-                    interactions[pair] += 1
-
-        # store the graph in the property_set
-        self.property_set["qubit_interaction_graph"] = dict(interactions)
-        print("ran through qubit interaction analysis")
-        return dag
-
 
 class LazyQubitReordering(TransformationPass):
     def __init__(self, nL: int):
@@ -283,7 +241,6 @@ class LazyQubitReordering(TransformationPass):
 
         # 13: return (g, M)
         return g_schedule, M
-    
 
 
         # ------------- Helpers: extract tiles & summarize ----------------
@@ -461,5 +418,3 @@ class LazyQubitReordering(TransformationPass):
         # Now LQR is a real TransformationPass
         print("ran through lqr")
         return new_dag
-
-

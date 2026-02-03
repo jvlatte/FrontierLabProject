@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import argparse
 
+"""
+Module for plotting benchmark results from CSV logs.
+"""
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 def plot_transpile_and_sim_vs_n(df, outdir):
@@ -160,10 +164,10 @@ def plot_runtime_vs_n(df, outdir, include_cpu=True):
                 plt.plot(gpu_med['nqubits'], gpu_med['total_s'],
                          marker='o', label=label)
 
-        plt.xlabel('nqubits')
-        plt.ylabel('total time (s)')
-        plt.title(f'Runtime vs nqubits — {group}' + ('' if include_cpu else ' (GPU only)'))
-        plt.legend()
+        plt.xlabel('nqubits', fontsize=20)
+        plt.ylabel('total time (s)', fontsize=20)
+        plt.title(f'Runtime vs nqubits — {group}' + ('' if include_cpu else ' (GPU only)'), fontsize=20)
+        plt.legend(fontsize=15)
         plt.tight_layout()
         suffix = f'rt_vs_n_{group}.png' if include_cpu else f'rt_vs_n_gpu_{group}.png'
         plt.savefig(outdir / suffix, dpi=160)
@@ -585,7 +589,7 @@ def plot_kernel_launches_comparison(df, outdir):
             if not aer_med.empty:
                 plt.plot(aer_med['nqubits'], aer_med['num_kernel_launches'],
                          marker='o', linewidth=2, markersize=8,
-                         label='gpu + baseline (Aer) - CPU-side kernel launches')
+                         label='gpu + baseline (Aer)')
                 plotted_any = True
 
         # Custom backend (gpu + custom + custom)
@@ -599,7 +603,7 @@ def plot_kernel_launches_comparison(df, outdir):
             if not avg_all.empty and avg_all[ycol].sum() > 0:
                 plt.plot(avg_all['nqubits'], avg_all[ycol],
                          marker='s', linewidth=2, markersize=8,
-                         label=f'gpu + custom (avg all nL) - CPU-side kernel launches')
+                         label=f'gpu + custom (avg all nL)')
                 plotted_any = True
 
 
@@ -619,7 +623,7 @@ def plot_kernel_launches_comparison(df, outdir):
                 if 'num_graph_replays' in best_rows.columns and best_rows['num_graph_replays'].sum() > 0:
                     line2, = plt.plot(best_rows['nqubits'], best_rows['num_graph_replays'],
                              marker='^', linewidth=2, markersize=8,
-                             label='gpu + custom (best nL) - CPU-side kernel launches')
+                             label='gpu + custom (best nL)')
                     plotted_any = True
             else:
                 # Graph replays (this is what custom actually does)
@@ -640,10 +644,10 @@ def plot_kernel_launches_comparison(df, outdir):
             plt.close()
             continue
 
-        plt.xlabel('Number of Qubits', fontsize=12)
-        plt.ylabel('Count', fontsize=12)
-        plt.title(f'CPU-side Kernel Launches vs nqubits — {group}\n(Aer sequential vs Custom graphed)', fontsize=14)
-        plt.legend(fontsize=10)
+        plt.xlabel('Number of Qubits', fontsize=22)
+        plt.ylabel('Count', fontsize=22)
+        plt.title(f'CPU-side Kernel Launches vs nqubits — {group}\n(Aer sequential vs Custom graphed)', fontsize=22)
+        plt.legend(fontsize=15)
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.savefig(outdir / f'kernel_launches_vs_n_{group}.png', dpi=160)
@@ -801,7 +805,7 @@ def main():
     print(f"Saving plots to: {outdir}")
 
     df = pd.read_csv(csv_path)
-    plot_runtime_vs_n(df, outdir, include_cpu=True)
+    # plot_runtime_vs_n(df, outdir, include_cpu=True)
     plot_runtime_vs_n(df, outdir, include_cpu=False)
     plot_correctness(df, outdir)
     plot_memory_vs_n(df, outdir)

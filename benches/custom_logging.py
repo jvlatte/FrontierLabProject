@@ -1,6 +1,13 @@
 import csv, os, platform
 
+"""
+Module for logging benchmark results to CSV files.
+"""
+
 def _env_info():
+    """
+    Get environment information for logging.
+    """
     return {
         "host": platform.node(),
         "os": platform.platform(),
@@ -11,6 +18,9 @@ def _env_info():
     }
 
 def _ensure_csv(path: str, fieldnames: list[str]):
+    """
+    Ensure that the CSV file exists and has the correct header.
+    """
     exists = os.path.exists(path)
     os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
     if not exists:
@@ -19,6 +29,9 @@ def _ensure_csv(path: str, fieldnames: list[str]):
             writer.writeheader()
 
 def _append_csv(path: str, row: dict, fieldnames: list[str]):
+    """
+    Append a row to the CSV file.
+    """
     with open(path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writerow(row)

@@ -1,6 +1,9 @@
 from qiskit_aer import AerSimulator
 from typing import Optional, Tuple
 
+"""
+Module to create baseline AerSimulator instances for benchmarking.
+"""
 
 
 def create_simulator(

@@ -1,0 +1,14 @@
+name: qgpu
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - cuda-version=12.6
+  - qiskit-aer=0.17[build=*cuda*]
+  - qiskit
+  - nvidia-ml-py
+  - matplotlib
+  - pandas
+  - pybind11
+prefix: /home/j-valete/miniconda3/envs/qgpu
